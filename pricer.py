@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import norm
+import yfinance as yf
 
 
 def calcule_d1_d2(S, K, T, r, sigma):
@@ -77,12 +78,25 @@ def rho(S, K, T, r, sigma, option_type):
     else:
         return -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
 
-    
-S = 100
-K = 100
+ticker = yf.Ticker("AAPL")
+data = ticker.history(period="1y")
+
+spot_reel = data["Close"].iloc[-1]
+
+rendements = np.log(data["Close"] / data["Close"].shift(1))
+vol_historique = rendements.std() * np.sqrt(252)
+
+print("Prix actuel d'Apple (spot réel) :", spot_reel)
+print("Volatilité historique annualisée :", vol_historique)
+
+S = spot_reel
+K = round(spot_reel)
 T = 1
 r = 0.03
-sigma = 0.20
+sigma = vol_historique
+
+    
+
 
 prix_call = black_scholes(S, K, T, r, sigma, "call")
 prix_put = black_scholes(S, K, T, r, sigma, "put")
