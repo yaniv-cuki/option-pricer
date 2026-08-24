@@ -64,6 +64,20 @@ def theta(S, K, T, r, sigma, option_type):
         theta_annuel = terme_commun + r * K * np.exp(-r * T) * norm.cdf(-d2)
 
     return theta_annuel / 365
+
+def rho(S, K, T, r, sigma, option_type):
+    """
+    Calcule le rho : sensibilité du prix de l'option à une variation
+    de 1 point de taux sans risque (ex: 3% -> 4%).
+    """
+    d1, d2 = calcule_d1_d2(S, K, T, r, sigma)
+
+    if option_type == "call":
+        return K * T * np.exp(-r * T) * norm.cdf(d2) / 100
+    else:
+        return -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
+
+    
 S = 100
 K = 100
 T = 1
@@ -90,5 +104,14 @@ theta_call = theta(S, K, T, r, sigma, "call")
 theta_put = theta(S, K, T, r, sigma, "put")
 print("Theta du call (par jour) :", theta_call)
 print("Theta du put (par jour) :", theta_put)
+
+rho_call = rho(S, K, T, r, sigma, "call")
+rho_put = rho(S, K, T, r, sigma, "put")
+print("Rho du call :", rho_call)
+print("Rho du put :", rho_put)
+
+rho_check = np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100)
+print("Relation Rho call/put respectée :", rho_check)
+
 
 
