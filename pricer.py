@@ -227,207 +227,208 @@ def calcule_smile(ticker_obj, date_expiration_str, spot, r):
 
 
 
+if __name__ == "__main__":
+    ticker = yf.Ticker("AAPL")
+    data = ticker.history(period="1y")
 
-ticker = yf.Ticker("AAPL")
-data = ticker.history(period="1y")
+    spot_reel = data["Close"].iloc[-1]
 
-spot_reel = data["Close"].iloc[-1]
+    rendements = np.log(data["Close"] / data["Close"].shift(1))
+    vol_historique = rendements.std() * np.sqrt(252)
 
-rendements = np.log(data["Close"] / data["Close"].shift(1))
-vol_historique = rendements.std() * np.sqrt(252)
+    print("Prix actuel d'Apple (spot réel) :", spot_reel)
+    print("Volatilité historique annualisée :", vol_historique)
 
-print("Prix actuel d'Apple (spot réel) :", spot_reel)
-print("Volatilité historique annualisée :", vol_historique)
+    S = spot_reel
+    K = round(spot_reel)
+    T = 1
+    r = 0.03
+    sigma = vol_historique
 
-S = spot_reel
-K = round(spot_reel)
-T = 1
-r = 0.03
-sigma = vol_historique
-
-    
+        
 
 
-prix_call = black_scholes(S, K, T, r, sigma, "call")
-prix_put = black_scholes(S, K, T, r, sigma, "put")
-print("Prix du call :", prix_call)
-print("Prix du put :", prix_put)
+    prix_call = black_scholes(S, K, T, r, sigma, "call")
+    prix_put = black_scholes(S, K, T, r, sigma, "put")
+    print("Prix du call :", prix_call)
+    print("Prix du put :", prix_put)
 
-parite_ok = np.isclose(prix_call - prix_put, S - K * np.exp(-r * T))
-print("Parité call-put respectée :", parite_ok)
+    parite_ok = np.isclose(prix_call - prix_put, S - K * np.exp(-r * T))
+    print("Parité call-put respectée :", parite_ok)
 
-delta_call = delta(S, K, T, r, sigma, "call")
-delta_put = delta(S, K, T, r, sigma, "put")
-print("Delta du call :", delta_call)
-print("Delta du put :", delta_put)
-gamma_option = gamma(S, K, T, r, sigma)
-print("Gamma :", gamma_option)
-vega_option = vega(S, K, T, r, sigma)
-print("Vega :", vega_option)
-theta_call = theta(S, K, T, r, sigma, "call")
-theta_put = theta(S, K, T, r, sigma, "put")
-print("Theta du call (par jour) :", theta_call)
-print("Theta du put (par jour) :", theta_put)
+    delta_call = delta(S, K, T, r, sigma, "call")
+    delta_put = delta(S, K, T, r, sigma, "put")
+    print("Delta du call :", delta_call)
+    print("Delta du put :", delta_put)
+    gamma_option = gamma(S, K, T, r, sigma)
+    print("Gamma :", gamma_option)
+    vega_option = vega(S, K, T, r, sigma)
+    print("Vega :", vega_option)
+    theta_call = theta(S, K, T, r, sigma, "call")
+    theta_put = theta(S, K, T, r, sigma, "put")
+    print("Theta du call (par jour) :", theta_call)
+    print("Theta du put (par jour) :", theta_put)
 
-rho_call = rho(S, K, T, r, sigma, "call")
-rho_put = rho(S, K, T, r, sigma, "put")
-print("Rho du call :", rho_call)
-print("Rho du put :", rho_put)
+    rho_call = rho(S, K, T, r, sigma, "call")
+    rho_put = rho(S, K, T, r, sigma, "put")
+    print("Rho du call :", rho_call)
+    print("Rho du put :", rho_put)
 
-rho_check = np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100)
-print("Relation Rho call/put respectée :", rho_check)
+    rho_check = np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100)
+    print("Relation Rho call/put respectée :", rho_check)
 
-dates_disponibles = ticker.options
-print("Dates d'expiration disponibles :", dates_disponibles)
+    dates_disponibles = ticker.options
+    print("Dates d'expiration disponibles :", dates_disponibles)
 
-date_choisie = dates_disponibles[7]
-aujourdhui = datetime.today()
-date_expiration = datetime.strptime(date_choisie, "%Y-%m-%d")
-jours_restants = (date_expiration - aujourdhui).days
-T_reel = jours_restants / 365
+    date_choisie = dates_disponibles[7]
+    aujourdhui = datetime.today()
+    date_expiration = datetime.strptime(date_choisie, "%Y-%m-%d")
+    jours_restants = (date_expiration - aujourdhui).days
+    T_reel = jours_restants / 365
 
-print("Date d'expiration choisie :", date_choisie)
-print("Jours restants avant expiration :", jours_restants)
-print("T réel (en années) :", T_reel)
+    print("Date d'expiration choisie :", date_choisie)
+    print("Jours restants avant expiration :", jours_restants)
+    print("T réel (en années) :", T_reel)
 
-chaine = ticker.option_chain(date_choisie)
-calls = chaine.calls
+    chaine = ticker.option_chain(date_choisie)
+    calls = chaine.calls
 
-calls["ecart"] = (calls["strike"] - spot_reel).abs()
-option_proche = calls.sort_values("ecart").iloc[0]
+    calls["ecart"] = (calls["strike"] - spot_reel).abs()
+    option_proche = calls.sort_values("ecart").iloc[0]
 
-K_reel = option_proche["strike"]
-prix_marche = option_proche["lastPrice"]
+    K_reel = option_proche["strike"]
+    prix_marche = option_proche["lastPrice"]
 
-print("Strike réel le plus proche du spot :", K_reel)
-print("Prix du call coté sur le marché :", prix_marche)
+    print("Strike réel le plus proche du spot :", K_reel)
+    print("Prix du call coté sur le marché :", prix_marche)
 
-prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
-print("Prix théorique (notre modèle) :", prix_theorique)
+    prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
+    print("Prix théorique (notre modèle) :", prix_theorique)
 
-ecart_prix = prix_marche - prix_theorique
-print("Écart entre marché et modèle :", ecart_prix)
+    ecart_prix = prix_marche - prix_theorique
+    print("Écart entre marché et modèle :", ecart_prix)
 
-prix_call_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
-print("Prix du call (Monte Carlo) :", prix_call_mc)
-print("Prix du call (Black-Scholes) :", prix_theorique)
+    prix_call_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
+    print("Prix du call (Monte Carlo) :", prix_call_mc)
+    print("Prix du call (Black-Scholes) :", prix_theorique)
 
-ecart_mc = abs(prix_call_mc - prix_theorique)
-print("Ecart Monte Carlo vs Black-Scholes :", ecart_mc)
+    ecart_mc = abs(prix_call_mc - prix_theorique)
+    print("Ecart Monte Carlo vs Black-Scholes :", ecart_mc)
 
-prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call", exercise_type="europeenne", N=500)
-print("Prix du call (arbre binomial) :", prix_call_binomial)
-print("Prix du call (Black-Scholes) :", prix_theorique)
+    prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call", exercise_type="europeenne", N=500)
+    print("Prix du call (arbre binomial) :", prix_call_binomial)
+    print("Prix du call (Black-Scholes) :", prix_theorique)
 
-ecart_binomial = abs(prix_call_binomial - prix_theorique)
-print("Ecart arbre binomial vs Black-Scholes :", ecart_binomial)
+    ecart_binomial = abs(prix_call_binomial - prix_theorique)
+    print("Ecart arbre binomial vs Black-Scholes :", ecart_binomial)
 
-prix_put_europeen = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="europeenne", N=500)
-prix_put_americain = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="americaine", N=500)
+    prix_put_europeen = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="europeenne", N=500)
+    prix_put_americain = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="americaine", N=500)
 
-print("Prix du put europeen (arbre) :", prix_put_europeen)
-print("Prix du put americain (arbre) :", prix_put_americain)
-print("Prime d'exercice anticipe (put) :", prix_put_americain - prix_put_europeen)
+    print("Prix du put europeen (arbre) :", prix_put_europeen)
+    print("Prix du put americain (arbre) :", prix_put_americain)
+    print("Prime d'exercice anticipe (put) :", prix_put_americain - prix_put_europeen)
 
-vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel, r, "call")
-print("Volatilite implicite (deduite du marche) :", vol_implicite)
-print("Volatilite historique (calculee plus tot) :", sigma)
+    vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel, r, "call")
+    print("Volatilite implicite (deduite du marche) :", vol_implicite)
+    print("Volatilite historique (calculee plus tot) :", sigma)
 
-prix_verif = black_scholes(S, K_reel, T_reel, r, vol_implicite, "call")
-print("Prix Black-Scholes avec cette vol implicite :", prix_verif)
-print("Prix reel du marche :", prix_marche)
+    prix_verif = black_scholes(S, K_reel, T_reel, r, vol_implicite, "call")
+    print("Prix Black-Scholes avec cette vol implicite :", prix_verif)
+    print("Prix reel du marche :", prix_marche)
 
-puts = chaine.puts
+    puts = chaine.puts
 
-puts_otm = puts[
-    (puts["lastPrice"] > 0.1)
-    & (puts["strike"] > spot_reel * 0.85)
-    & (puts["strike"] <= spot_reel)
-]
+    puts_otm = puts[
+        (puts["lastPrice"] > 0.1)
+        & (puts["strike"] > spot_reel * 0.85)
+        & (puts["strike"] <= spot_reel)
+    ]
 
-calls_otm = calls[
-    (calls["lastPrice"] > 0.1)
-    & (calls["strike"] > spot_reel)
-    & (calls["strike"] < spot_reel * 1.15)
-]
+    calls_otm = calls[
+        (calls["lastPrice"] > 0.1)
+        & (calls["strike"] > spot_reel)
+        & (calls["strike"] < spot_reel * 1.15)
+    ]
 
-strikes_smile = []
-vols_smile = []
+    strikes_smile = []
+    vols_smile = []
 
-for index, ligne in puts_otm.iterrows():
-    try:
-        vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "put")
-        if vi is not None and 0.01 < vi < 3:
-            strikes_smile.append(ligne["strike"])
-            vols_smile.append(vi)
-    except Exception:
-        continue
+    for index, ligne in puts_otm.iterrows():
+        try:
+            vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "put")
+            if vi is not None and 0.01 < vi < 3:
+                strikes_smile.append(ligne["strike"])
+                vols_smile.append(vi)
+        except Exception:
+            continue
 
-for index, ligne in calls_otm.iterrows():
-    try:
-        vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "call")
-        if vi is not None and 0.01 < vi < 3:
-            strikes_smile.append(ligne["strike"])
-            vols_smile.append(vi)
-    except Exception:
-        continue
+    for index, ligne in calls_otm.iterrows():
+        try:
+            vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "call")
+            if vi is not None and 0.01 < vi < 3:
+                strikes_smile.append(ligne["strike"])
+                vols_smile.append(vi)
+        except Exception:
+            continue
 
-points = sorted(zip(strikes_smile, vols_smile))
-strikes_smile = [p[0] for p in points]
-vols_smile = [p[1] for p in points]
+    points = sorted(zip(strikes_smile, vols_smile))
+    strikes_smile = [p[0] for p in points]
+    vols_smile = [p[1] for p in points]
 
-print("Nombre de points calcules pour le smile :", len(strikes_smile))
+    print("Nombre de points calcules pour le smile :", len(strikes_smile))
 
-plt.figure(figsize=(10, 6))
-plt.plot(strikes_smile, vols_smile, marker="o", linestyle="-")
-plt.axvline(spot_reel, color="red", linestyle="--", label="Spot actuel")
-plt.xlabel("Strike")
-plt.ylabel("Volatilite implicite")
-plt.title("Smile de volatilite - AAPL - echeance " + date_choisie)
-plt.legend()
-plt.grid(True)
-plt.savefig("smile_volatilite.png", dpi=150)
-plt.show()
+    plt.figure(figsize=(10, 6))
+    plt.plot(strikes_smile, vols_smile, marker="o", linestyle="-")
+    plt.axvline(spot_reel, color="red", linestyle="--", label="Spot actuel")
+    plt.xlabel("Strike")
+    plt.ylabel("Volatilite implicite")
+    plt.title("Smile de volatilite - AAPL - echeance " + date_choisie)
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("smile_volatilite.png", dpi=150)
+    plt.show()
 
-echeances_surface = dates_disponibles[5:12]
+    echeances_surface = dates_disponibles[5:12]
 
-x_strikes = []
-y_maturites = []
-z_vols = []
+    x_strikes = []
+    y_maturites = []
+    z_vols = []
 
-for date_exp in echeances_surface:
-    strikes_e, vols_e, T_e = calcule_smile(ticker, date_exp, spot_reel, r)
+    for date_exp in echeances_surface:
+        strikes_e, vols_e, T_e = calcule_smile(ticker, date_exp, spot_reel, r)
 
-    if len(strikes_e) < 5:
-        continue
+        if len(strikes_e) < 5:
+            continue
 
-    for k, v in zip(strikes_e, vols_e):
-        x_strikes.append(k / spot_reel)
-        y_maturites.append(T_e * 365)
-        z_vols.append(v)
+        for k, v in zip(strikes_e, vols_e):
+            x_strikes.append(k / spot_reel)
+            y_maturites.append(T_e * 365)
+            z_vols.append(v)
 
-print("Nombre total de points pour la surface :", len(z_vols))
+    print("Nombre total de points pour la surface :", len(z_vols))
 
-figure_3d = go.Figure(data=[go.Mesh3d(
-    x=x_strikes,
-    y=y_maturites,
-    z=z_vols,
-    intensity=z_vols,
-    colorscale="Viridis",
-    opacity=0.9
-)])
+    figure_3d = go.Figure(data=[go.Mesh3d(
+        x=x_strikes,
+        y=y_maturites,
+        z=z_vols,
+        intensity=z_vols,
+        colorscale="Viridis",
+        opacity=0.9
+    )])
 
-figure_3d.update_layout(
-    title="Surface de volatilite implicite - AAPL",
-    scene=dict(
-        xaxis_title="Moneyness (Strike / Spot)",
-        yaxis_title="Jours avant expiration",
-        zaxis_title="Volatilite implicite"
+    figure_3d.update_layout(
+        title="Surface de volatilite implicite - AAPL",
+        scene=dict(
+            xaxis_title="Moneyness (Strike / Spot)",
+            yaxis_title="Jours avant expiration",
+            zaxis_title="Volatilite implicite"
+        )
     )
-)
 
-figure_3d.write_html("surface_volatilite.html")
-figure_3d.show()
+    figure_3d.write_html("surface_volatilite.html")
+    figure_3d.show()
+
 
 
 
