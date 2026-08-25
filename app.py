@@ -2,43 +2,175 @@
 Dashboard Streamlit - Pricer d'options europeennes.
 
 Interface interactive pour le moteur de pricing defini dans pricer.py.
+Textes de l'interface stockes dans traductions.py.
 Lancer avec :  streamlit run app.py
 """
 
-import streamlit as st
+from datetime import datetime
+
 import numpy as np
-import yfinance as yf
 import plotly.graph_objects as go
+import streamlit as st
+import yfinance as yf
 
 from pricer import (
+    binomial_tree,
     black_scholes,
+    calcule_smile,
     delta,
     gamma,
-    vega,
-    theta,
-    rho,
     monte_carlo_pricer,
-    binomial_tree,
-    volatilite_implicite,
-    calcule_smile,
+    rho,
+    theta,
+    vega,
+)
+from traductions import LANGUES, TRADUCTIONS
+
+
+# ---------------------------------------------------------------------------
+# Langue de l'interface
+# ---------------------------------------------------------------------------
+
+st.set_page_config(page_title="Options Pricer", layout="wide")
+
+langue = st.sidebar.selectbox(
+    "Language / Langue",
+    options=list(LANGUES.keys()),
+    format_func=lambda code: LANGUES[code],
 )
 
 
+def t(cle, **valeurs):
+    """Renvoie le texte associe a une cle, dans la langue active.
+
+    Les valeurs nommees eventuelles sont injectees dans le texte
+    (par exemple t("label_strike", K=310) -> "Strike 310").
+    """
+    texte = TRADUCTIONS[langue][cle]
+    return texte.format(**valeurs) if valeurs else texte
+
+
 # ---------------------------------------------------------------------------
-# Configuration de la page
+# Style
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Pricer d'options", layout="wide")
+st.markdown(
+    """
+<style>
+/* --- Fond d'ambiance --- */
+.stApp {
+    background:
+        radial-gradient(1200px 600px at 15% -10%, rgba(76,155,232,0.18), transparent 60%),
+        radial-gradient(1000px 500px at 85% 0%, rgba(245,165,36,0.10), transparent 55%),
+        linear-gradient(180deg, #0B1020 0%, #0E1428 100%);
+}
 
-st.title("Pricer d'options europeennes - Black-Scholes")
-st.write(
-    "Modele de pricing avec calcul des grecques, comparaison de methodes "
-    "numeriques et analyse de la volatilite implicite sur donnees reelles."
+/* --- Cartes de metriques en verre --- */
+[data-testid="stMetric"] {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+    transition: transform .25s ease, border-color .25s ease;
+}
+
+[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    border-color: rgba(245,165,36,0.45);
+}
+
+[data-testid="stMetricValue"] {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.5px;
+}
+
+[data-testid="stMetricLabel"] {
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    opacity: 0.65;
+}
+
+/* --- Barre laterale --- */
+section[data-testid="stSidebar"] {
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(20px);
+    border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+/* --- Bandeau live --- */
+.live-bar {
+    display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    padding: 14px 22px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+}
+
+.live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #22C55E; display: inline-block; margin-right: 10px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+    70%  { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+.live-ticker { font-size: 1.45rem; font-weight: 700; letter-spacing: 0.04em; }
+
+.live-price, .live-change {
+    font-family: "SF Mono","JetBrains Mono",Menlo,monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.live-price { font-size: 1.75rem; font-weight: 600; }
+.live-change { font-size: 1rem; padding: 4px 10px; border-radius: 8px; }
+.up   { color: #22C55E; background: rgba(34,197,94,0.12); }
+.down { color: #EF4444; background: rgba(239,68,68,0.12); }
+
+.live-meta {
+    margin-left: auto; font-size: 0.72rem; opacity: 0.55;
+    letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* --- Pied de page --- */
+.footer {
+    margin-top: 60px; padding: 22px 0 10px 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.82rem; opacity: 0.6; text-align: center;
+}
+
+.footer a { color: #F5A524; text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+
+/* --- Accessibilite : respect des preferences systeme --- */
+@media (prefers-reduced-motion: reduce) {
+    [data-testid="stMetric"] { transition: none; }
+    .live-dot { animation: none; }
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
+st.title(t("app_title"))
+st.write(t("app_intro"))
+
 
 # ---------------------------------------------------------------------------
-# Fonctions de recuperation des donnees de marche (mises en cache)
+# Recuperation des donnees de marche (mise en cache)
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300)
@@ -64,43 +196,134 @@ def charger_echeances(symbole):
     return list(tk.options)
 
 
+@st.cache_data(ttl=60)
+def charger_intraday(symbole):
+    """Recupere la serie intraday et la variation depuis la cloture precedente."""
+    tk = yf.Ticker(symbole)
+    intraday = tk.history(period="1d", interval="5m")
+    recent = tk.history(period="5d")
+
+    if intraday.empty or len(recent) < 2:
+        return None
+
+    dernier = float(intraday["Close"].iloc[-1])
+    cloture_precedente = float(recent["Close"].iloc[-2])
+    variation = dernier - cloture_precedente
+
+    return {
+        "dernier": dernier,
+        "variation": variation,
+        "variation_pct": variation / cloture_precedente * 100,
+        "serie": [float(x) for x in intraday["Close"].tolist()],
+    }
+
+
+@st.fragment(run_every="30s")
+def bandeau_live(symbole):
+    """Bandeau de cotation auto-rafraichi toutes les 30 secondes."""
+    donnees = charger_intraday(symbole)
+
+    if donnees is None:
+        st.warning(t("live_unavailable"))
+        return
+
+    hausse = donnees["variation"] >= 0
+    sens = "up" if hausse else "down"
+    signe = "+" if hausse else ""
+    meta = t("live_meta", heure=datetime.now().strftime("%H:%M:%S"))
+
+    st.markdown(
+        f"""
+    <div class="live-bar">
+        <span>
+            <span class="live-dot"></span>
+            <span class="live-ticker">{symbole.upper()}</span>
+        </span>
+        <span class="live-price">{donnees['dernier']:.2f}</span>
+        <span class="live-change {sens}">
+            {signe}{donnees['variation']:.2f} ({signe}{donnees['variation_pct']:.2f}%)
+        </span>
+        <span class="live-meta">{meta}</span>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    couleur = "#22C55E" if hausse else "#EF4444"
+    remplissage = "rgba(34,197,94,0.12)" if hausse else "rgba(239,68,68,0.12)"
+
+    fig_spark = go.Figure()
+    fig_spark.add_trace(go.Scatter(
+        y=donnees["serie"],
+        mode="lines",
+        line=dict(width=2, color=couleur),
+        fill="tozeroy",
+        fillcolor=remplissage,
+        hoverinfo="skip",
+    ))
+    fig_spark.update_layout(
+        height=90,
+        margin=dict(l=0, r=0, t=4, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(visible=False),
+        yaxis=dict(
+            visible=False,
+            range=[min(donnees["serie"]) * 0.998, max(donnees["serie"]) * 1.002],
+        ),
+        showlegend=False,
+    )
+
+    st.plotly_chart(fig_spark, width="stretch", config={"displayModeBar": False})
+
+
 # ---------------------------------------------------------------------------
-# Barre laterale : donnees reelles + parametres du modele
+# Barre laterale : donnees reelles et parametres du modele
 # ---------------------------------------------------------------------------
 
-st.sidebar.header("Parametres de marche")
-st.sidebar.subheader("Donnees de marche reelles")
+st.sidebar.header(t("sidebar_header"))
+st.sidebar.subheader(t("sidebar_subheader"))
 
-ticker_input = st.sidebar.text_input("Ticker", value="AAPL")
+ticker_input = st.sidebar.text_input(t("ticker_label"), value="AAPL")
 
-if st.sidebar.button("Charger les donnees du marche"):
+if st.sidebar.button(t("load_button")):
     spot_charge, vol_chargee = charger_donnees_marche(ticker_input)
 
     if spot_charge is None:
-        st.sidebar.error("Ticker introuvable ou donnees indisponibles.")
+        st.sidebar.error(t("load_error"))
     else:
         st.session_state["spot_charge"] = float(spot_charge)
         st.session_state["vol_chargee"] = float(vol_chargee)
         st.session_state["strike_defaut"] = float(round(spot_charge))
-        st.sidebar.success(
-            f"Spot : {spot_charge:.2f} | Vol historique : {vol_chargee:.2%}"
-        )
+        st.sidebar.success(t("load_success", spot=spot_charge, vol=vol_chargee))
 
 # Valeurs par defaut des curseurs, bornees pour rester dans la plage autorisee
 spot_defaut = float(np.clip(st.session_state.get("spot_charge", 310.0), 50.0, 500.0))
 strike_defaut = float(np.clip(st.session_state.get("strike_defaut", 310.0), 50.0, 500.0))
 vol_defaut = float(np.clip(st.session_state.get("vol_chargee", 0.25) * 100, 1.0, 100.0))
 
-S = st.sidebar.slider("Prix du sous-jacent (S)", 50.0, 500.0, spot_defaut, step=1.0)
-K = st.sidebar.slider("Strike (K)", 50.0, 500.0, strike_defaut, step=1.0)
-T_jours = st.sidebar.slider("Jours avant expiration", 1, 730, 30)
-r_pct = st.sidebar.slider("Taux sans risque (%)", 0.0, 10.0, 3.0, step=0.1)
-sigma_pct = st.sidebar.slider("Volatilite (%)", 1.0, 100.0, vol_defaut, step=0.5)
-option_type = st.sidebar.selectbox("Type d'option", ["call", "put"])
+S = st.sidebar.slider(t("slider_spot"), 50.0, 500.0, spot_defaut, step=1.0)
+K = st.sidebar.slider(t("slider_strike"), 50.0, 500.0, strike_defaut, step=1.0)
+T_jours = st.sidebar.slider(t("slider_days"), 1, 730, 30)
+r_pct = st.sidebar.slider(t("slider_rate"), 0.0, 10.0, 3.0, step=0.1)
+sigma_pct = st.sidebar.slider(t("slider_vol"), 1.0, 100.0, vol_defaut, step=0.5)
+
+option_type = st.sidebar.selectbox(
+    t("select_type"),
+    options=["call", "put"],
+    format_func=lambda code: t(f"option_{code}"),
+)
 
 T = T_jours / 365
 r = r_pct / 100
 sigma = sigma_pct / 100
+
+
+# ---------------------------------------------------------------------------
+# Bandeau de cotation
+# ---------------------------------------------------------------------------
+
+bandeau_live(ticker_input)
 
 
 # ---------------------------------------------------------------------------
@@ -109,30 +332,30 @@ sigma = sigma_pct / 100
 
 prix = black_scholes(S, K, T, r, sigma, option_type)
 
-st.header("Prix de l'option")
-st.metric(label="Prix Black-Scholes", value=f"{prix:.4f}")
+st.header(t("header_price"))
+st.metric(label=t("metric_price"), value=f"{prix:.4f}")
 
 
 # ---------------------------------------------------------------------------
 # Grecques
 # ---------------------------------------------------------------------------
 
-st.header("Grecques")
+st.header(t("header_greeks"))
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-col1.metric("Delta", f"{delta(S, K, T, r, sigma, option_type):.4f}")
-col2.metric("Gamma", f"{gamma(S, K, T, r, sigma):.4f}")
-col3.metric("Vega", f"{vega(S, K, T, r, sigma):.4f}")
-col4.metric("Theta (jour)", f"{theta(S, K, T, r, sigma, option_type):.4f}")
-col5.metric("Rho", f"{rho(S, K, T, r, sigma, option_type):.4f}")
+col1.metric(t("greek_delta"), f"{delta(S, K, T, r, sigma, option_type):.4f}")
+col2.metric(t("greek_gamma"), f"{gamma(S, K, T, r, sigma):.4f}")
+col3.metric(t("greek_vega"), f"{vega(S, K, T, r, sigma):.4f}")
+col4.metric(t("greek_theta"), f"{theta(S, K, T, r, sigma, option_type):.4f}")
+col5.metric(t("greek_rho"), f"{rho(S, K, T, r, sigma, option_type):.4f}")
 
 
 # ---------------------------------------------------------------------------
 # Comparaison des trois methodes de pricing
 # ---------------------------------------------------------------------------
 
-st.header("Comparaison des methodes de pricing")
+st.header(t("header_methods"))
 
 prix_mc = monte_carlo_pricer(S, K, T, r, sigma, option_type)
 prix_bin_eu = binomial_tree(S, K, T, r, sigma, option_type,
@@ -142,67 +365,62 @@ prix_bin_us = binomial_tree(S, K, T, r, sigma, option_type,
 
 col_a, col_b, col_c, col_d = st.columns(4)
 
-col_a.metric("Black-Scholes", f"{prix:.4f}")
-col_b.metric("Monte Carlo", f"{prix_mc:.4f}", delta=f"{prix_mc - prix:.4f}")
-col_c.metric("Binomial (europeen)", f"{prix_bin_eu:.4f}",
+col_a.metric(t("method_bs"), f"{prix:.4f}")
+col_b.metric(t("method_mc"), f"{prix_mc:.4f}", delta=f"{prix_mc - prix:.4f}")
+col_c.metric(t("method_bin_eu"), f"{prix_bin_eu:.4f}",
              delta=f"{prix_bin_eu - prix:.4f}")
-col_d.metric("Binomial (americain)", f"{prix_bin_us:.4f}",
+col_d.metric(t("method_bin_us"), f"{prix_bin_us:.4f}",
              delta=f"{prix_bin_us - prix_bin_eu:.4f}")
 
-st.caption(
-    "Les ecarts affiches sous chaque methode sont mesures par rapport a "
-    "Black-Scholes, sauf pour l'americain (mesure vs binomial europeen, "
-    "ce qui donne la prime d'exercice anticipe)."
-)
+st.caption(t("caption_methods"))
 
 
 # ---------------------------------------------------------------------------
 # Profil du Delta en fonction du sous-jacent
 # ---------------------------------------------------------------------------
 
-st.header("Profil du Delta en fonction du sous-jacent")
+st.header(t("header_delta_profile"))
 
 spots_graphique = np.linspace(S * 0.6, S * 1.4, 150)
 deltas_graphique = [delta(s, K, T, r, sigma, option_type) for s in spots_graphique]
 
-fig = go.Figure()
+fig_delta = go.Figure()
 
-fig.add_trace(go.Scatter(
+fig_delta.add_trace(go.Scatter(
     x=spots_graphique,
     y=deltas_graphique,
     mode="lines",
-    name="Delta",
+    name=t("axis_delta"),
     line=dict(width=3, color="#4C9BE8"),
 ))
 
-fig.add_vline(x=K, line_dash="dash", line_color="#E8574C",
-              annotation_text=f"Strike {K:.0f}", annotation_position="top")
-fig.add_vline(x=S, line_dash="dot", line_color="#4CE874",
-              annotation_text=f"Spot {S:.0f}", annotation_position="bottom")
+fig_delta.add_vline(x=K, line_dash="dash", line_color="#E8574C",
+                    annotation_text=t("label_strike", K=K),
+                    annotation_position="top")
+fig_delta.add_vline(x=S, line_dash="dot", line_color="#4CE874",
+                    annotation_text=t("label_spot", S=S),
+                    annotation_position="bottom")
 
-fig.update_layout(
+fig_delta.update_layout(
     template="plotly_dark",
-    xaxis_title="Prix du sous-jacent",
-    yaxis_title="Delta",
+    xaxis_title=t("axis_underlying"),
+    yaxis_title=t("axis_delta"),
     height=400,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     margin=dict(l=40, r=40, t=30, b=40),
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_delta, width="stretch")
 
-st.caption(
-    "La pente de cette courbe est le gamma : elle est maximale autour du strike, "
-    "et se redresse brutalement a l'approche de l'echeance."
-)
+st.caption(t("caption_delta"))
 
 
 # ---------------------------------------------------------------------------
 # Decomposition de la valeur et profil de gain
 # ---------------------------------------------------------------------------
 
-st.header("Decomposition de la valeur et profil de gain")
+st.header(t("header_decomposition"))
 
 if option_type == "call":
     intrinseque_actuelle = max(S - K, 0)
@@ -214,9 +432,9 @@ else:
 valeur_temps = prix - intrinseque_actuelle
 
 col_i, col_j, col_k = st.columns(3)
-col_i.metric("Valeur intrinseque", f"{intrinseque_actuelle:.2f}")
-col_j.metric("Valeur temps", f"{valeur_temps:.2f}")
-col_k.metric("Point mort a l'echeance", f"{point_mort:.2f}")
+col_i.metric(t("metric_intrinsic"), f"{intrinseque_actuelle:.2f}")
+col_j.metric(t("metric_time_value"), f"{valeur_temps:.2f}")
+col_k.metric(t("metric_breakeven"), f"{point_mort:.2f}")
 
 spots_payoff = np.linspace(S * 0.6, S * 1.4, 200)
 
@@ -228,31 +446,32 @@ else:
 valeur_aujourdhui = [black_scholes(s, K, T, r, sigma, option_type)
                      for s in spots_payoff]
 
-fig3 = go.Figure()
+fig_payoff = go.Figure()
 
-fig3.add_trace(go.Scatter(
+fig_payoff.add_trace(go.Scatter(
     x=spots_payoff,
     y=valeur_aujourdhui,
     mode="lines",
-    name=f"Valeur aujourd'hui ({T_jours} jours)",
+    name=t("legend_today", jours=T_jours),
     line=dict(width=3, color="#4C9BE8"),
 ))
 
-fig3.add_trace(go.Scatter(
+fig_payoff.add_trace(go.Scatter(
     x=spots_payoff,
     y=payoff_echeance,
     mode="lines",
-    name="Payoff a l'echeance",
+    name=t("legend_payoff"),
     line=dict(width=2, color="#E8A44C", dash="dash"),
 ))
 
-fig3.add_vline(x=K, line_dash="dot", line_color="#888888",
-               annotation_text=f"Strike {K:.0f}", annotation_position="top left")
+fig_payoff.add_vline(x=K, line_dash="dot", line_color="#888888",
+                     annotation_text=t("label_strike", K=K),
+                     annotation_position="top left")
 
-fig3.update_layout(
+fig_payoff.update_layout(
     template="plotly_dark",
-    xaxis_title="Prix du sous-jacent",
-    yaxis_title="Valeur de l'option",
+    xaxis_title=t("axis_underlying"),
+    yaxis_title=t("axis_option_value"),
     height=450,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -260,82 +479,73 @@ fig3.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 
-st.plotly_chart(fig3, use_container_width=True)
+st.plotly_chart(fig_payoff, width="stretch")
 
-st.caption(
-    "L'ecart vertical entre les deux courbes represente la valeur temps. "
-    "Elle disparait progressivement a mesure que l'echeance approche "
-    "(effet mesure par le theta)."
-)
+st.caption(t("caption_decomposition"))
 
 
 # ---------------------------------------------------------------------------
 # Smile de volatilite implicite sur donnees reelles
 # ---------------------------------------------------------------------------
 
-st.header("Smile de volatilite implicite (donnees reelles)")
+st.header(t("header_smile"))
+st.write(t("smile_intro"))
 
-st.write(
-    "Cette section calcule la volatilite implicite a partir des prix d'options "
-    "reellement cotes sur le marche, en utilisant les options hors de la monnaie "
-    "(puts sous le spot, calls au-dessus)."
-)
-
-if st.button("Analyser le smile de volatilite"):
+if st.button(t("smile_button")):
     try:
         echeances = charger_echeances(ticker_input)
 
         if len(echeances) == 0:
-            st.error("Aucune echeance disponible pour ce ticker.")
+            st.error(t("smile_no_expiry"))
         else:
             st.session_state["echeances"] = echeances
     except Exception as e:
-        st.error(f"Impossible de recuperer les echeances : {e}")
+        st.error(t("smile_fetch_error", erreur=e))
 
 if "echeances" in st.session_state:
     echeances = st.session_state["echeances"]
     index_defaut = min(7, len(echeances) - 1)
-    echeance_choisie = st.selectbox("Echeance", echeances, index=index_defaut)
+    echeance_choisie = st.selectbox(
+        t("smile_expiry_label"), echeances, index=index_defaut
+    )
 
-    with st.spinner("Calcul des volatilites implicites en cours..."):
+    with st.spinner(t("smile_spinner")):
         ticker_obj = yf.Ticker(ticker_input)
         strikes_smile, vols_smile, T_smile = calcule_smile(
             ticker_obj, echeance_choisie, S, r
         )
 
     if len(strikes_smile) < 3:
-        st.warning(
-            "Pas assez de points exploitables pour cette echeance "
-            "(options peu liquides)."
-        )
+        st.warning(t("smile_few_points"))
     else:
         col_x, col_y, col_z = st.columns(3)
-        col_x.metric("Points calcules", len(strikes_smile))
-        col_y.metric("Vol implicite ATM",
+        col_x.metric(t("smile_points"), len(strikes_smile))
+        col_y.metric(t("smile_iv_atm"),
                      f"{np.interp(S, strikes_smile, vols_smile):.2%}")
-        col_z.metric("Vol historique", f"{sigma:.2%}")
+        col_z.metric(t("smile_hist_vol"), f"{sigma:.2%}")
 
-        fig2 = go.Figure()
+        fig_smile = go.Figure()
 
-        fig2.add_trace(go.Scatter(
+        fig_smile.add_trace(go.Scatter(
             x=strikes_smile,
             y=vols_smile,
             mode="lines+markers",
-            name="Volatilite implicite",
+            name=t("axis_iv"),
             line=dict(width=3, color="#4C9BE8"),
             marker=dict(size=8),
         ))
 
-        fig2.add_vline(x=S, line_dash="dash", line_color="#E8574C",
-                       annotation_text=f"Spot {S:.0f}", annotation_position="top")
-        fig2.add_hline(y=sigma, line_dash="dot", line_color="#E8A44C",
-                       annotation_text=f"Vol historique {sigma:.1%}",
-                       annotation_position="top left")
+        fig_smile.add_vline(x=S, line_dash="dash", line_color="#E8574C",
+                            annotation_text=t("label_spot", S=S),
+                            annotation_position="top")
+        fig_smile.add_hline(y=sigma, line_dash="dot", line_color="#E8A44C",
+                            annotation_text=t("label_hist_vol"),
+                            annotation_position="bottom right")
 
-        fig2.update_layout(
+        fig_smile.update_layout(
             template="plotly_dark",
-            xaxis_title="Strike",
-            yaxis_title="Volatilite implicite",
+            xaxis_title=t("axis_strike"),
+            yaxis_title=t("axis_iv"),
             yaxis_tickformat=".1%",
             height=450,
             paper_bgcolor="rgba(0,0,0,0)",
@@ -343,11 +553,22 @@ if "echeances" in st.session_state:
             margin=dict(l=40, r=40, t=30, b=40),
         )
 
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig_smile, width="stretch")
 
-        st.caption(
-            "Si Black-Scholes etait exact, cette courbe serait horizontale. "
-            "Sa pente (skew) traduit la prime payee par le marche pour se "
-            "proteger contre une baisse."
-        )
-        
+        st.caption(t("caption_smile"))
+
+
+# ---------------------------------------------------------------------------
+# Pied de page
+# ---------------------------------------------------------------------------
+
+st.markdown(
+    """
+<div class="footer">
+    Built by <strong>Yaniv C.</strong> &nbsp;|&nbsp;
+    <a href="https://linkedin.com/in/yaniv-cukierman-b384a139b/" target="_blank">LinkedIn</a><br>
+    Market data via Yahoo Finance (delayed ~15 min)
+</div>
+""",
+    unsafe_allow_html=True,
+)
