@@ -96,7 +96,30 @@ def monte_carlo_pricer(S, K, T, r, sigma, option_type, nb_simulations=100000):
     prix_estime = np.exp(-r * T) * np.mean(payoffs)
     return prix_estime
 
-    
+def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne", N=500):
+    """
+    Price une option avec un arbre binomial CRR.
+    exercise_type : "europeenne" ou "americaine".
+    """
+    dt = T / N
+    u = np.exp(sigma * np.sqrt(dt))
+    d = 1 / u
+    p = (np.exp(r * dt) - d) / (u - d)
+    discount = np.exp(-r * dt)
+
+    prix_finaux = np.array([S * (u ** j) * (d ** (N - j)) for j in range(N + 1)])
+
+    if option_type == "call":
+        valeurs = np.maximum(prix_finaux - K, 0)
+    else:
+        valeurs = np.maximum(K - prix_finaux, 0)
+
+    for i in range(N - 1, -1, -1):
+        valeurs = discount * (p * valeurs[1:i + 2] + (1 - p) * valeurs[0:i + 1])
+
+    return valeurs[0]
+
+
 ticker = yf.Ticker("AAPL")
 data = ticker.history(period="1y")
 
@@ -183,6 +206,14 @@ print("Prix du call (Black-Scholes) :", prix_theorique)
 
 ecart_mc = abs(prix_call_mc - prix_theorique)
 print("Ecart Monte Carlo vs Black-Scholes :", ecart_mc)
+
+prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call", exercise_type="europeenne", N=500)
+print("Prix du call (arbre binomial) :", prix_call_binomial)
+print("Prix du call (Black-Scholes) :", prix_theorique)
+
+ecart_binomial = abs(prix_call_binomial - prix_theorique)
+print("Ecart arbre binomial vs Black-Scholes :", ecart_binomial)
+
 
 
 
