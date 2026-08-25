@@ -129,3 +129,4 @@ print("Relation Rho call/put respectée :", rho_check)
 
 
 
+
