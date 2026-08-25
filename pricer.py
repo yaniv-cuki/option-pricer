@@ -4,6 +4,8 @@ import yfinance as yf
 from datetime import datetime
 from scipy.optimize import brentq
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+
 
 
 def calcule_d1_d2(S, K, T, r, sigma):
@@ -168,6 +170,62 @@ def volatilite_implicite(prix_marche, S, K, T, r, option_type):
 
     return brentq(ecart_prix, 1e-6, 5)
 
+def calcule_smile(ticker_obj, date_expiration_str, spot, r):
+    """
+    Calcule le smile de volatilite implicite pour une echeance donnee.
+    Utilise les puts OTM sous le spot et les calls OTM au-dessus.
+    Renvoie (liste_strikes, liste_vols, T).
+    """
+    aujourdhui = datetime.today()
+    date_exp = datetime.strptime(date_expiration_str, "%Y-%m-%d")
+    jours = (date_exp - aujourdhui).days
+
+    if jours <= 0:
+        return [], [], 0
+
+    T = jours / 365
+    chaine_locale = ticker_obj.option_chain(date_expiration_str)
+
+    puts_otm = chaine_locale.puts[
+        (chaine_locale.puts["lastPrice"] > 0.1)
+        & (chaine_locale.puts["strike"] > spot * 0.85)
+        & (chaine_locale.puts["strike"] <= spot)
+    ]
+
+    calls_otm = chaine_locale.calls[
+        (chaine_locale.calls["lastPrice"] > 0.1)
+        & (chaine_locale.calls["strike"] > spot)
+        & (chaine_locale.calls["strike"] < spot * 1.15)
+    ]
+
+    strikes = []
+    vols = []
+
+    for index, ligne in puts_otm.iterrows():
+        try:
+            vi = volatilite_implicite(ligne["lastPrice"], spot, ligne["strike"], T, r, "put")
+            if vi is not None and 0.01 < vi < 3:
+                strikes.append(ligne["strike"])
+                vols.append(vi)
+        except Exception:
+            continue
+
+    for index, ligne in calls_otm.iterrows():
+        try:
+            vi = volatilite_implicite(ligne["lastPrice"], spot, ligne["strike"], T, r, "call")
+            if vi is not None and 0.01 < vi < 3:
+                strikes.append(ligne["strike"])
+                vols.append(vi)
+        except Exception:
+            continue
+
+    points_tries = sorted(zip(strikes, vols))
+    strikes = [p[0] for p in points_tries]
+    vols = [p[1] for p in points_tries]
+
+    return strikes, vols, T
+
+
 
 
 ticker = yf.Ticker("AAPL")
@@ -330,6 +388,47 @@ plt.legend()
 plt.grid(True)
 plt.savefig("smile_volatilite.png", dpi=150)
 plt.show()
+
+echeances_surface = dates_disponibles[5:12]
+
+x_strikes = []
+y_maturites = []
+z_vols = []
+
+for date_exp in echeances_surface:
+    strikes_e, vols_e, T_e = calcule_smile(ticker, date_exp, spot_reel, r)
+
+    if len(strikes_e) < 5:
+        continue
+
+    for k, v in zip(strikes_e, vols_e):
+        x_strikes.append(k / spot_reel)
+        y_maturites.append(T_e * 365)
+        z_vols.append(v)
+
+print("Nombre total de points pour la surface :", len(z_vols))
+
+figure_3d = go.Figure(data=[go.Mesh3d(
+    x=x_strikes,
+    y=y_maturites,
+    z=z_vols,
+    intensity=z_vols,
+    colorscale="Viridis",
+    opacity=0.9
+)])
+
+figure_3d.update_layout(
+    title="Surface de volatilite implicite - AAPL",
+    scene=dict(
+        xaxis_title="Moneyness (Strike / Spot)",
+        yaxis_title="Jours avant expiration",
+        zaxis_title="Volatilite implicite"
+    )
+)
+
+figure_3d.write_html("surface_volatilite.html")
+figure_3d.show()
+
 
 
 
