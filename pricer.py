@@ -3,6 +3,8 @@ from scipy.stats import norm
 import yfinance as yf
 from datetime import datetime
 from scipy.optimize import brentq
+import matplotlib.pyplot as plt
+
 
 def calcule_d1_d2(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
@@ -276,6 +278,61 @@ print("Volatilite historique (calculee plus tot) :", sigma)
 prix_verif = black_scholes(S, K_reel, T_reel, r, vol_implicite, "call")
 print("Prix Black-Scholes avec cette vol implicite :", prix_verif)
 print("Prix reel du marche :", prix_marche)
+
+puts = chaine.puts
+
+puts_otm = puts[
+    (puts["lastPrice"] > 0.1)
+    & (puts["strike"] > spot_reel * 0.85)
+    & (puts["strike"] <= spot_reel)
+]
+
+calls_otm = calls[
+    (calls["lastPrice"] > 0.1)
+    & (calls["strike"] > spot_reel)
+    & (calls["strike"] < spot_reel * 1.15)
+]
+
+strikes_smile = []
+vols_smile = []
+
+for index, ligne in puts_otm.iterrows():
+    try:
+        vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "put")
+        if vi is not None and 0.01 < vi < 3:
+            strikes_smile.append(ligne["strike"])
+            vols_smile.append(vi)
+    except Exception:
+        continue
+
+for index, ligne in calls_otm.iterrows():
+    try:
+        vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "call")
+        if vi is not None and 0.01 < vi < 3:
+            strikes_smile.append(ligne["strike"])
+            vols_smile.append(vi)
+    except Exception:
+        continue
+
+points = sorted(zip(strikes_smile, vols_smile))
+strikes_smile = [p[0] for p in points]
+vols_smile = [p[1] for p in points]
+
+print("Nombre de points calcules pour le smile :", len(strikes_smile))
+
+plt.figure(figsize=(10, 6))
+plt.plot(strikes_smile, vols_smile, marker="o", linestyle="-")
+plt.axvline(spot_reel, color="red", linestyle="--", label="Spot actuel")
+plt.xlabel("Strike")
+plt.ylabel("Volatilite implicite")
+plt.title("Smile de volatilite - AAPL - echeance " + date_choisie)
+plt.legend()
+plt.grid(True)
+plt.savefig("smile_volatilite.png", dpi=150)
+plt.show()
+
+
+
 
 
 
