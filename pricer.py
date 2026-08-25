@@ -1,9 +1,8 @@
 import numpy as np
 from scipy.stats import norm
 import yfinance as yf
-
 from datetime import datetime
-
+from scipy.optimize import brentq
 
 def calcule_d1_d2(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
@@ -117,7 +116,56 @@ def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne", N=
     for i in range(N - 1, -1, -1):
         valeurs = discount * (p * valeurs[1:i + 2] + (1 - p) * valeurs[0:i + 1])
 
+        if exercise_type == "americaine":
+            prix_noeuds = np.array([S * (u ** j) * (d ** (i - j)) for j in range(i + 1)])
+            if option_type == "call":
+                payoff_immediat = np.maximum(prix_noeuds - K, 0)
+            else:
+                payoff_immediat = np.maximum(K - prix_noeuds, 0)
+            valeurs = np.maximum(valeurs, payoff_immediat)
+
     return valeurs[0]
+
+def volatilite_implicite_newton(prix_marche, S, K, T, r, option_type, sigma_init=0.3, tolerance=1e-6, max_iterations=100):
+    """
+    Recherche la volatilite implicite par la methode de Newton-Raphson.
+    Renvoie None si la methode ne converge pas.
+    """
+    sigma = sigma_init
+
+    for i in range(max_iterations):
+        prix_estime = black_scholes(S, K, T, r, sigma, option_type)
+        ecart = prix_estime - prix_marche
+
+        if abs(ecart) < tolerance:
+            return sigma
+
+        d1, _ = calcule_d1_d2(S, K, T, r, sigma)
+        vega_brut = S * norm.pdf(d1) * np.sqrt(T)
+
+        if vega_brut < 1e-8:
+            return None
+
+        sigma = sigma - ecart / vega_brut
+
+    return None
+
+
+def volatilite_implicite(prix_marche, S, K, T, r, option_type):
+    """
+    Calcule la volatilite implicite. Essaie Newton-Raphson d'abord (rapide),
+    puis scipy.optimize.brentq en filet de securite si Newton-Raphson diverge.
+    """
+    sigma = volatilite_implicite_newton(prix_marche, S, K, T, r, option_type)
+
+    if sigma is not None:
+        return sigma
+
+    def ecart_prix(sigma_test):
+        return black_scholes(S, K, T, r, sigma_test, option_type) - prix_marche
+
+    return brentq(ecart_prix, 1e-6, 5)
+
 
 
 ticker = yf.Ticker("AAPL")
@@ -213,6 +261,23 @@ print("Prix du call (Black-Scholes) :", prix_theorique)
 
 ecart_binomial = abs(prix_call_binomial - prix_theorique)
 print("Ecart arbre binomial vs Black-Scholes :", ecart_binomial)
+
+prix_put_europeen = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="europeenne", N=500)
+prix_put_americain = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="americaine", N=500)
+
+print("Prix du put europeen (arbre) :", prix_put_europeen)
+print("Prix du put americain (arbre) :", prix_put_americain)
+print("Prime d'exercice anticipe (put) :", prix_put_americain - prix_put_europeen)
+
+vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel, r, "call")
+print("Volatilite implicite (deduite du marche) :", vol_implicite)
+print("Volatilite historique (calculee plus tot) :", sigma)
+
+prix_verif = black_scholes(S, K_reel, T_reel, r, vol_implicite, "call")
+print("Prix Black-Scholes avec cette vol implicite :", prix_verif)
+print("Prix reel du marche :", prix_marche)
+
+
 
 
 
