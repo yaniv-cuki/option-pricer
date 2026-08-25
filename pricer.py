@@ -2,6 +2,8 @@ import numpy as np
 from scipy.stats import norm
 import yfinance as yf
 
+from datetime import datetime
+
 
 def calcule_d1_d2(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
@@ -126,6 +128,39 @@ print("Rho du put :", rho_put)
 
 rho_check = np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100)
 print("Relation Rho call/put respectée :", rho_check)
+
+dates_disponibles = ticker.options
+print("Dates d'expiration disponibles :", dates_disponibles)
+
+date_choisie = dates_disponibles[7]
+aujourdhui = datetime.today()
+date_expiration = datetime.strptime(date_choisie, "%Y-%m-%d")
+jours_restants = (date_expiration - aujourdhui).days
+T_reel = jours_restants / 365
+
+print("Date d'expiration choisie :", date_choisie)
+print("Jours restants avant expiration :", jours_restants)
+print("T réel (en années) :", T_reel)
+
+chaine = ticker.option_chain(date_choisie)
+calls = chaine.calls
+
+calls["ecart"] = (calls["strike"] - spot_reel).abs()
+option_proche = calls.sort_values("ecart").iloc[0]
+
+K_reel = option_proche["strike"]
+prix_marche = option_proche["lastPrice"]
+
+print("Strike réel le plus proche du spot :", K_reel)
+print("Prix du call coté sur le marché :", prix_marche)
+
+prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
+print("Prix théorique (notre modèle) :", prix_theorique)
+
+ecart_prix = prix_marche - prix_theorique
+print("Écart entre marché et modèle :", ecart_prix)
+
+
 
 
 
