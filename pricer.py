@@ -80,6 +80,23 @@ def rho(S, K, T, r, sigma, option_type):
     else:
         return -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
 
+def monte_carlo_pricer(S, K, T, r, sigma, option_type, nb_simulations=100000):
+    """
+    Estime le prix d'une option europeenne par simulation Monte Carlo.
+    """
+    np.random.seed(42)
+    Z = np.random.standard_normal(nb_simulations)
+    S_T = S * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * Z)
+
+    if option_type == "call":
+        payoffs = np.maximum(S_T - K, 0)
+    else:
+        payoffs = np.maximum(K - S_T, 0)
+
+    prix_estime = np.exp(-r * T) * np.mean(payoffs)
+    return prix_estime
+
+    
 ticker = yf.Ticker("AAPL")
 data = ticker.history(period="1y")
 
@@ -159,6 +176,14 @@ print("Prix théorique (notre modèle) :", prix_theorique)
 
 ecart_prix = prix_marche - prix_theorique
 print("Écart entre marché et modèle :", ecart_prix)
+
+prix_call_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
+print("Prix du call (Monte Carlo) :", prix_call_mc)
+print("Prix du call (Black-Scholes) :", prix_theorique)
+
+ecart_mc = abs(prix_call_mc - prix_theorique)
+print("Ecart Monte Carlo vs Black-Scholes :", ecart_mc)
+
 
 
 
