@@ -173,18 +173,28 @@ st.write(t("app_intro"))
 # Recuperation des donnees de marche (mise en cache)
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def charger_donnees_marche(symbole):
-    """Recupere le spot et la volatilite historique annualisee sur 1 an."""
+    """Recupere le spot courant et la volatilite historique annualisee sur 1 an.
+
+    Le spot est pris sur la serie intraday quand elle est disponible, pour
+    rester coherent avec le prix affiche dans le bandeau de cotation.
+    """
     tk = yf.Ticker(symbole)
     historique = tk.history(period="1y")
 
     if historique.empty:
         return None, None
 
-    spot = historique["Close"].iloc[-1]
     rendements_log = np.log(historique["Close"] / historique["Close"].shift(1))
     vol = rendements_log.std() * np.sqrt(252)
+
+    donnees_intraday = charger_intraday(symbole)
+
+    if donnees_intraday is not None:
+        spot = donnees_intraday["dernier"]
+    else:
+        spot = float(historique["Close"].iloc[-1])
 
     return spot, vol
 
@@ -284,7 +294,35 @@ def bandeau_live(symbole):
 st.sidebar.header(t("sidebar_header"))
 st.sidebar.subheader(t("sidebar_subheader"))
 
-ticker_input = st.sidebar.text_input(t("ticker_label"), value="AAPL")
+# Valeurs initiales, posees une seule fois au premier chargement.
+# Les widgets sont ensuite pilotes par leur cle, ce qui les rend
+# insensibles au changement de langue.
+VALEURS_INITIALES = {
+    "ticker": "AAPL",
+    "S": 310.0,
+    "K": 310.0,
+    "T_jours": 30,
+    "r_pct": 3.0,
+    "sigma_pct": 25.0,
+    "option_type": "call",
+}
+
+for cle, valeur in VALEURS_INITIALES.items():
+    if cle not in st.session_state:
+        st.session_state[cle] = valeur
+# Au tout premier chargement, on aligne les curseurs sur le marche reel
+# plutot que de laisser les valeurs de repli.
+if "initialise" not in st.session_state:
+    spot_init, vol_init = charger_donnees_marche(st.session_state["ticker"])
+
+    if spot_init is not None:
+        st.session_state["S"] = float(np.clip(spot_init, 50.0, 500.0))
+        st.session_state["K"] = float(np.clip(round(spot_init), 50.0, 500.0))
+        st.session_state["sigma_pct"] = float(np.clip(vol_init * 100, 1.0, 100.0))
+
+    st.session_state["initialise"] = True
+    
+ticker_input = st.sidebar.text_input(t("ticker_label"), key="ticker")
 
 if st.sidebar.button(t("load_button")):
     spot_charge, vol_chargee = charger_donnees_marche(ticker_input)
@@ -292,26 +330,22 @@ if st.sidebar.button(t("load_button")):
     if spot_charge is None:
         st.sidebar.error(t("load_error"))
     else:
-        st.session_state["spot_charge"] = float(spot_charge)
-        st.session_state["vol_chargee"] = float(vol_chargee)
-        st.session_state["strike_defaut"] = float(round(spot_charge))
+        st.session_state["S"] = float(np.clip(spot_charge, 50.0, 500.0))
+        st.session_state["K"] = float(np.clip(round(spot_charge), 50.0, 500.0))
+        st.session_state["sigma_pct"] = float(np.clip(vol_chargee * 100, 1.0, 100.0))
         st.sidebar.success(t("load_success", spot=spot_charge, vol=vol_chargee))
 
-# Valeurs par defaut des curseurs, bornees pour rester dans la plage autorisee
-spot_defaut = float(np.clip(st.session_state.get("spot_charge", 310.0), 50.0, 500.0))
-strike_defaut = float(np.clip(st.session_state.get("strike_defaut", 310.0), 50.0, 500.0))
-vol_defaut = float(np.clip(st.session_state.get("vol_chargee", 0.25) * 100, 1.0, 100.0))
-
-S = st.sidebar.slider(t("slider_spot"), 50.0, 500.0, spot_defaut, step=1.0)
-K = st.sidebar.slider(t("slider_strike"), 50.0, 500.0, strike_defaut, step=1.0)
-T_jours = st.sidebar.slider(t("slider_days"), 1, 730, 30)
-r_pct = st.sidebar.slider(t("slider_rate"), 0.0, 10.0, 3.0, step=0.1)
-sigma_pct = st.sidebar.slider(t("slider_vol"), 1.0, 100.0, vol_defaut, step=0.5)
+S = st.sidebar.slider(t("slider_spot"), 50.0, 500.0, step=1.0, key="S")
+K = st.sidebar.slider(t("slider_strike"), 50.0, 500.0, step=1.0, key="K")
+T_jours = st.sidebar.slider(t("slider_days"), 1, 730, key="T_jours")
+r_pct = st.sidebar.slider(t("slider_rate"), 0.0, 10.0, step=0.1, key="r_pct")
+sigma_pct = st.sidebar.slider(t("slider_vol"), 1.0, 100.0, step=0.5, key="sigma_pct")
 
 option_type = st.sidebar.selectbox(
     t("select_type"),
     options=["call", "put"],
     format_func=lambda code: t(f"option_{code}"),
+    key="option_type",
 )
 
 T = T_jours / 365
