@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+
 from pricer import (
     binomial_tree,
     black_scholes,
@@ -23,8 +24,12 @@ from pricer import (
     rho,
     theta,
     vega,
+    simule_delta_hedging,
+    
 )
 from traductions import LANGUES, TRADUCTIONS
+from plotly.subplots import make_subplots
+
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +326,7 @@ if "initialise" not in st.session_state:
         st.session_state["sigma_pct"] = float(np.clip(vol_init * 100, 1.0, 100.0))
 
     st.session_state["initialise"] = True
-    
+
 ticker_input = st.sidebar.text_input(t("ticker_label"), key="ticker")
 
 if st.sidebar.button(t("load_button")):
@@ -590,6 +595,131 @@ if "echeances" in st.session_state:
         st.plotly_chart(fig_smile, width="stretch")
 
         st.caption(t("caption_smile"))
+
+# ---------------------------------------------------------------------------
+# Simulation de delta-hedging
+# ---------------------------------------------------------------------------
+
+st.header(t("header_hedging"))
+st.write(t("hedging_intro"))
+
+n_rebal = st.select_slider(
+    t("hedging_freq"),
+    options=[10, 25, 50, 100, 250],
+    value=50,
+    key="n_rebal",
+)
+
+
+@st.cache_data(show_spinner=False)
+def calcule_convergence(S, K, T, r, sigma, frequences, n_trajectoires=150):
+    """Ecart-type du P&L de couverture pour plusieurs frequences."""
+    ecarts = []
+
+    for n in frequences:
+        pnls = [
+            simule_delta_hedging(S, K, T, r, sigma, n, seed=i)["pnl"]
+            for i in range(n_trajectoires)
+        ]
+        ecarts.append(float(np.std(pnls)))
+
+    return ecarts
+
+
+if st.button(t("hedging_button")):
+    st.session_state["hedging_lance"] = True
+
+if st.session_state.get("hedging_lance"):
+    with st.spinner(t("hedging_spinner")):
+        resultat = simule_delta_hedging(S, K, T, r, sigma, n_rebal, seed=7)
+        frequences = [10, 25, 50, 100, 250]
+        ecarts = calcule_convergence(S, K, T, r, sigma, tuple(frequences))
+
+    erreur_pct = abs(resultat["pnl"]) / resultat["prime"] * 100
+
+    col_p, col_q, col_r = st.columns(3)
+    col_p.metric(t("metric_premium"), f"{resultat['prime']:.2f}")
+    col_q.metric(t("metric_pnl"), f"{resultat['pnl']:+.2f}")
+    col_r.metric(t("metric_hedge_error"), f"{erreur_pct:.1f}%")
+
+    # --- Graphique 1 : trajectoire et couverture ---
+    temps = np.linspace(0, 1, len(resultat["prix"]))
+
+    fig_traj = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig_traj.add_trace(
+        go.Scatter(x=temps, y=resultat["prix"], mode="lines",
+                   name=t("legend_price"),
+                   line=dict(width=3, color="#4C9BE8")),
+        secondary_y=False,
+    )
+
+    fig_traj.add_trace(
+        go.Scatter(x=temps, y=resultat["positions"], mode="lines",
+                   name=t("legend_delta_pos"),
+                   line=dict(width=2, color="#F5A524")),
+        secondary_y=True,
+    )
+
+    fig_traj.add_hline(y=K, line_dash="dot", line_color="#888888",
+                       annotation_text=t("label_strike", K=K),
+                       annotation_position="top left")
+
+    fig_traj.update_yaxes(title_text=t("axis_price"), secondary_y=False)
+    fig_traj.update_yaxes(title_text=t("axis_delta_pos"), secondary_y=True,
+                          range=[0, 1])
+
+    fig_traj.update_layout(
+        template="plotly_dark",
+        xaxis_title=t("axis_time"),
+        height=420,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=40, r=40, t=30, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+    )
+
+    st.plotly_chart(fig_traj, width="stretch")
+    st.caption(t("caption_trajectory"))
+
+    # --- Graphique 2 : convergence en log-log ---
+    st.subheader(t("hedging_convergence"))
+
+    reference = [ecarts[0] * np.sqrt(frequences[0] / n) for n in frequences]
+
+    fig_conv = go.Figure()
+
+    fig_conv.add_trace(go.Scatter(
+        x=frequences, y=ecarts, mode="lines+markers",
+        name=t("legend_observed"),
+        line=dict(width=3, color="#4C9BE8"),
+        marker=dict(size=9),
+    ))
+
+    fig_conv.add_trace(go.Scatter(
+        x=frequences, y=reference, mode="lines",
+        name=t("legend_theory"),
+        line=dict(width=2, color="#E8574C", dash="dash"),
+    ))
+
+    fig_conv.update_layout(
+        template="plotly_dark",
+        xaxis_title=t("axis_rebalancings"),
+        yaxis_title=t("axis_std"),
+        xaxis_type="log",
+        yaxis_type="log",
+        height=420,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=40, r=40, t=30, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+    )
+
+    st.plotly_chart(fig_conv, width="stretch")
+    st.caption(t("caption_convergence"))
+
 
 
 # ---------------------------------------------------------------------------

@@ -225,6 +225,68 @@ def calcule_smile(ticker_obj, date_expiration_str, spot, r):
 
     return strikes, vols, T
 
+def simule_delta_hedging(S, K, T, r, sigma, n_rebalancements, seed=None):
+    """
+    Simule la couverture en delta d'un call vendu, sur une trajectoire de prix.
+
+    Le vendeur encaisse la prime Black-Scholes, achete delta actions, et
+    reajuste sa position a chaque pas. Le solde de tresorerie porte interet
+    au taux sans risque.
+
+    Renvoie un dictionnaire contenant la trajectoire et le P&L final.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    dt = T / n_rebalancements
+
+    # Trajectoire du sous-jacent (mouvement brownien geometrique)
+    chocs = np.random.standard_normal(n_rebalancements)
+    prix = np.zeros(n_rebalancements + 1)
+    prix[0] = S
+
+    for i in range(n_rebalancements):
+        prix[i + 1] = prix[i] * np.exp(
+            (r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * chocs[i]
+        )
+
+    # Vente du call : on encaisse la prime
+    prime = black_scholes(S, K, T, r, sigma, "call")
+
+    # Couverture initiale
+    delta_courant = delta(S, K, T, r, sigma, "call")
+    tresorerie = prime - delta_courant * S
+
+    positions = np.zeros(n_rebalancements + 1)
+    positions[0] = delta_courant
+
+    # Reajustements
+    for i in range(1, n_rebalancements):
+        temps_restant = T - i * dt
+        tresorerie = tresorerie * np.exp(r * dt)
+
+        nouveau_delta = delta(prix[i], K, temps_restant, r, sigma, "call")
+        tresorerie = tresorerie - (nouveau_delta - delta_courant) * prix[i]
+
+        delta_courant = nouveau_delta
+        positions[i] = delta_courant
+
+    # Denouement a l'echeance
+    tresorerie = tresorerie * np.exp(r * dt)
+    positions[-1] = delta_courant
+
+    valeur_actions = delta_courant * prix[-1]
+    payoff_du_client = max(prix[-1] - K, 0)
+    pnl = tresorerie + valeur_actions - payoff_du_client
+
+    return {
+        "prix": prix,
+        "positions": positions,
+        "prime": prime,
+        "pnl": pnl,
+        "spot_final": prix[-1],
+        "payoff": payoff_du_client,
+    }
 
 
 if __name__ == "__main__":
@@ -428,6 +490,20 @@ if __name__ == "__main__":
 
     figure_3d.write_html("surface_volatilite.html")
     figure_3d.show()
+    print("\n--- Simulation de delta-hedging ---")
+    print("(300 trajectoires par frequence de reajustement)")
+    print(f"{'Pas':>6} | {'P&L moyen':>10} | {'Ecart-type':>10} | {'x sqrt(n)':>10}")
+
+    for n in [10, 50, 250, 1000]:
+        pnls = [
+            simule_delta_hedging(100, 100, 1, 0.03, 0.20, n, seed=i)["pnl"]
+            for i in range(300)
+        ]
+        moyenne = np.mean(pnls)
+        ecart_type = np.std(pnls)
+        print(f"{n:6d} | {moyenne:+10.4f} | {ecart_type:10.4f} | "
+              f"{ecart_type * np.sqrt(n):10.4f}")
+        
 
 
 

@@ -110,6 +110,40 @@ TRADUCTIONS = {
             "If Black-Scholes were exact, this curve would be flat. Its slope "
             "(skew) reflects the premium the market pays for downside protection."
         ),
+                # Delta-hedging
+        "header_hedging": "Delta-hedging simulation",
+        "hedging_intro": (
+            "A trader who sells this call hedges it by holding delta shares of "
+            "the underlying, rebalancing as the delta moves. In continuous time "
+            "the hedge would be perfect. In practice it is discrete, and the "
+            "residual error is what this section measures."
+        ),
+        "hedging_freq": "Rebalancings over the option's life",
+        "hedging_button": "Run the simulation",
+        "hedging_spinner": "Simulating hedged paths...",
+        "metric_premium": "Premium collected",
+        "metric_pnl": "Final P&L",
+        "metric_hedge_error": "Error vs premium",
+        "legend_price": "Underlying price",
+        "legend_delta_pos": "Delta position",
+        "axis_time": "Time (fraction of maturity)",
+        "axis_price": "Underlying price",
+        "axis_delta_pos": "Shares held",
+        "caption_trajectory": (
+            "The hedge tracks the underlying: the position rises as the option "
+            "moves into the money and falls as it moves out."
+        ),
+        "hedging_convergence": "Hedging error vs rebalancing frequency",
+        "axis_rebalancings": "Number of rebalancings (log scale)",
+        "axis_std": "P&L standard deviation (log scale)",
+        "legend_observed": "Observed",
+        "legend_theory": "Theory in 1/sqrt(n)",
+        "caption_convergence": (
+            "On log-log axes a power law appears as a straight line. The "
+            "observed slope matches the theoretical -1/2: quadrupling the "
+            "rebalancing frequency only halves the risk, while transaction "
+            "costs grow linearly."
+        ),
     },
 
     # -----------------------------------------------------------------------
@@ -226,4 +260,38 @@ TRADUCTIONS = {
 LANGUES = {
     "en": "English",
     "fr": "Francais",
+            # Delta-hedging
+        "header_hedging": "Simulation de delta-hedging",
+        "hedging_intro": (
+            "Un trader qui vend ce call se couvre en detenant delta actions du "
+            "sous-jacent, et reajuste sa position quand le delta bouge. En temps "
+            "continu la couverture serait parfaite. En pratique elle est discrete, "
+            "et c'est l'erreur residuelle que mesure cette section."
+        ),
+        "hedging_freq": "Reajustements sur la duree de vie de l'option",
+        "hedging_button": "Lancer la simulation",
+        "hedging_spinner": "Simulation des trajectoires couvertes...",
+        "metric_premium": "Prime encaissee",
+        "metric_pnl": "P&L final",
+        "metric_hedge_error": "Erreur vs prime",
+        "legend_price": "Prix du sous-jacent",
+        "legend_delta_pos": "Position en delta",
+        "axis_time": "Temps (fraction de la maturite)",
+        "axis_price": "Prix du sous-jacent",
+        "axis_delta_pos": "Actions detenues",
+        "caption_trajectory": (
+            "La couverture suit le sous-jacent : la position augmente quand "
+            "l'option entre dans la monnaie et diminue quand elle en sort."
+        ),
+        "hedging_convergence": "Erreur de couverture selon la frequence de reajustement",
+        "axis_rebalancings": "Nombre de reajustements (echelle log)",
+        "axis_std": "Ecart-type du P&L (echelle log)",
+        "legend_observed": "Observe",
+        "legend_theory": "Theorie en 1/sqrt(n)",
+        "caption_convergence": (
+            "En echelle log-log, une loi de puissance apparait comme une droite. "
+            "La pente observee correspond au -1/2 theorique : quadrupler la "
+            "frequence de reajustement ne divise le risque que par deux, alors "
+            "que les couts de transaction croissent lineairement."
+        ),
 }
