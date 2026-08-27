@@ -5,6 +5,7 @@
 ![NumPy](https://img.shields.io/badge/NumPy-013243?logo=numpy&logoColor=white)
 ![SciPy](https://img.shields.io/badge/SciPy-8CAAE6?logo=scipy&logoColor=white)
 ![Plotly](https://img.shields.io/badge/Plotly-3F4F75?logo=plotly&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-96%20passing-4CAF50)
 
 An interactive options pricing engine built from scratch in Python, connected to
 live market data. Prices European and American options through three independent
@@ -94,6 +95,16 @@ implementation is correct — not against my own expectations.
 The binomial tree converges an order of magnitude closer than Monte Carlo at
 comparable settings — expected, since it is deterministic rather than sampled.
 
+All of this is automated. From the project root:
+
+```bash
+pytest -v
+```
+
+96 test cases covering pricing identities, arbitrage bounds, Greeks against
+numerical derivatives, method convergence, early exercise, implied volatility
+inversion, hedging behaviour and extreme-parameter robustness.
+
 ---
 
 ## The cost of a discrete hedge
@@ -175,6 +186,12 @@ To run the pricing engine on its own, without the interface:
 python3 pricer.py
 ```
 
+To run the test suite:
+
+```bash
+pytest -v
+```
+
 ---
 
 ## Project structure
@@ -184,6 +201,7 @@ option-pricer/
 ├── pricer.py           # Pricing engine: models, Greeks, implied vol, hedging
 ├── app.py              # Streamlit dashboard
 ├── traductions.py      # UI strings (EN / FR)
+├── test_pricer.py      # Test suite (96 cases)
 ├── requirements.txt
 └── .streamlit/
     └── config.toml     # Theme
@@ -192,13 +210,14 @@ option-pricer/
 The pricing logic is deliberately kept independent of the interface: `pricer.py`
 has no Streamlit dependency and can be imported into a notebook or a test suite.
 It also uses local random generators rather than the global NumPy seed, so
-importing it does not disturb the caller's random state.
+importing it does not disturb the caller's random state, and every simulation is
+reproducible from its seed.
 
 ---
 
 ## Stack
 
-Python · NumPy · SciPy · pandas · yfinance · Plotly · Streamlit
+Python · NumPy · SciPy · pandas · yfinance · Plotly · Streamlit · pytest
 
 ---
 
