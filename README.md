@@ -12,7 +12,7 @@ methods, computes the full set of Greeks, reconstructs the implied volatility
 surface from real quoted prices, and simulates a discretely rebalanced delta
 hedge.
 
-**[▶ Live demo](#)** · Built by Yaniv C. · [LinkedIn](https://linkedin.com/in/yaniv-cukierman-b384a139b/)
+**[▶ Live demo](https://yaniv-options-pricer.streamlit.app)** · Built by Yaniv C. · [LinkedIn](https://linkedin.com/in/yaniv-cukierman-b384a139b/)
 
 ![Volatility smile](smile_volatilite.png)
 
