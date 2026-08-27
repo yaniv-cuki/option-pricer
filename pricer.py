@@ -448,7 +448,7 @@ if __name__ == "__main__":
     plt.title("Smile de volatilite - AAPL - echeance " + date_choisie)
     plt.legend()
     plt.grid(True)
-    plt.savefig("smile_volatilite.png", dpi=150)
+    plt.savefig("smile_matplotlib.png", dpi=150)
     plt.show()
 
     echeances_surface = dates_disponibles[5:12]
