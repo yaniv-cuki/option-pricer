@@ -1,23 +1,35 @@
+"""
+Moteur de pricing d'options europeennes et americaines.
+
+Contient les modeles (Black-Scholes, Monte Carlo, arbre binomial CRR),
+les grecques, l'inversion en volatilite implicite et une simulation
+de delta-hedging.
+
+Ce module ne depend pas de Streamlit : il peut etre importe dans un
+notebook, une suite de tests ou l'application app.py.
+
+Lancer directement (python3 pricer.py) execute une demonstration sur
+donnees reelles.
+"""
+
 import numpy as np
-from scipy.stats import norm
-import yfinance as yf
-from datetime import datetime
 from scipy.optimize import brentq
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
+from scipy.stats import norm
 
 
+# ---------------------------------------------------------------------------
+# Black-Scholes et grecques
+# ---------------------------------------------------------------------------
 
 def calcule_d1_d2(S, K, T, r, sigma):
+    """Termes intermediaires d1 et d2 de la formule de Black-Scholes."""
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
     return d1, d2
 
 
 def black_scholes(S, K, T, r, sigma, option_type):
-    """
-    Calcule le prix d'une option européenne avec le modèle Black-Scholes.
-    """
+    """Prix d'une option europeenne par la formule fermee de Black-Scholes."""
     d1, d2 = calcule_d1_d2(S, K, T, r, sigma)
 
     if option_type == "call":
@@ -29,10 +41,7 @@ def black_scholes(S, K, T, r, sigma, option_type):
 
 
 def delta(S, K, T, r, sigma, option_type):
-    """
-    Calcule le delta : sensibilité du prix de l'option à une variation
-    de 1 unité du prix du sous-jacent.
-    """
+    """Sensibilite du prix a une variation de 1 unite du sous-jacent."""
     d1, _ = calcule_d1_d2(S, K, T, r, sigma)
 
     if option_type == "call":
@@ -40,27 +49,21 @@ def delta(S, K, T, r, sigma, option_type):
     else:
         return norm.cdf(d1) - 1
 
+
 def gamma(S, K, T, r, sigma):
-    """
-    Calcule le gamma : sensibilité du delta à une variation
-    de 1 unité du prix du sous-jacent. Identique pour call et put.
-    """
+    """Sensibilite du delta au sous-jacent. Identique pour call et put."""
     d1, _ = calcule_d1_d2(S, K, T, r, sigma)
     return norm.pdf(d1) / (S * sigma * np.sqrt(T))
 
+
 def vega(S, K, T, r, sigma):
-    """
-    Calcule le vega : sensibilité du prix de l'option à une variation
-    de 1 point de volatilité (ex: 20% -> 21%). Identique pour call et put.
-    """
+    """Sensibilite a 1 point de volatilite (20% -> 21%). Call = put."""
     d1, _ = calcule_d1_d2(S, K, T, r, sigma)
     return S * norm.pdf(d1) * np.sqrt(T) / 100
 
+
 def theta(S, K, T, r, sigma, option_type):
-    """
-    Calcule le theta : perte de valeur de l'option chaque jour qui passe,
-    toutes choses égales par ailleurs. Exprimé par jour (annuel / 365).
-    """
+    """Perte de valeur par jour calendaire, toutes choses egales par ailleurs."""
     d1, d2 = calcule_d1_d2(S, K, T, r, sigma)
     terme_commun = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
 
@@ -71,24 +74,30 @@ def theta(S, K, T, r, sigma, option_type):
 
     return theta_annuel / 365
 
+
 def rho(S, K, T, r, sigma, option_type):
-    """
-    Calcule le rho : sensibilité du prix de l'option à une variation
-    de 1 point de taux sans risque (ex: 3% -> 4%).
-    """
-    d1, d2 = calcule_d1_d2(S, K, T, r, sigma)
+    """Sensibilite a 1 point de taux sans risque (3% -> 4%)."""
+    _, d2 = calcule_d1_d2(S, K, T, r, sigma)
 
     if option_type == "call":
         return K * T * np.exp(-r * T) * norm.cdf(d2) / 100
     else:
         return -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
 
-def monte_carlo_pricer(S, K, T, r, sigma, option_type, nb_simulations=100000):
+
+# ---------------------------------------------------------------------------
+# Methodes numeriques
+# ---------------------------------------------------------------------------
+
+def monte_carlo_pricer(S, K, T, r, sigma, option_type, nb_simulations=100000,
+                       seed=42):
+    """Estime le prix d'une option europeenne par simulation Monte Carlo.
+
+    Utilise un generateur local (default_rng) plutot que np.random.seed,
+    qui modifierait l'etat aleatoire global du programme appelant.
     """
-    Estime le prix d'une option europeenne par simulation Monte Carlo.
-    """
-    np.random.seed(42)
-    Z = np.random.standard_normal(nb_simulations)
+    rng = np.random.default_rng(seed)
+    Z = rng.standard_normal(nb_simulations)
     S_T = S * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * Z)
 
     if option_type == "call":
@@ -96,13 +105,15 @@ def monte_carlo_pricer(S, K, T, r, sigma, option_type, nb_simulations=100000):
     else:
         payoffs = np.maximum(K - S_T, 0)
 
-    prix_estime = np.exp(-r * T) * np.mean(payoffs)
-    return prix_estime
+    return np.exp(-r * T) * np.mean(payoffs)
 
-def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne", N=500):
-    """
-    Price une option avec un arbre binomial CRR.
-    exercise_type : "europeenne" ou "americaine".
+
+def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne",
+                  N=500):
+    """Price une option avec un arbre binomial Cox-Ross-Rubinstein.
+
+    exercise_type : "europeenne" ou "americaine". Dans le cas americain,
+    on compare a chaque noeud la valeur de continuation au payoff immediat.
     """
     dt = T / N
     u = np.exp(sigma * np.sqrt(dt))
@@ -121,7 +132,9 @@ def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne", N=
         valeurs = discount * (p * valeurs[1:i + 2] + (1 - p) * valeurs[0:i + 1])
 
         if exercise_type == "americaine":
-            prix_noeuds = np.array([S * (u ** j) * (d ** (i - j)) for j in range(i + 1)])
+            prix_noeuds = np.array(
+                [S * (u ** j) * (d ** (i - j)) for j in range(i + 1)]
+            )
             if option_type == "call":
                 payoff_immediat = np.maximum(prix_noeuds - K, 0)
             else:
@@ -130,36 +143,73 @@ def binomial_tree(S, K, T, r, sigma, option_type, exercise_type="europeenne", N=
 
     return valeurs[0]
 
-def volatilite_implicite_newton(prix_marche, S, K, T, r, option_type, sigma_init=0.3, tolerance=1e-6, max_iterations=100):
+
+# ---------------------------------------------------------------------------
+# Volatilite implicite
+# ---------------------------------------------------------------------------
+
+def borne_arbitrage(S, K, T, r, option_type):
+    """Valeur minimale d'une option europeenne (valeur intrinseque actualisee).
+
+    En dessous de cette borne, il existerait une opportunite d'arbitrage :
+    aucune volatilite ne peut expliquer un tel prix.
     """
-    Recherche la volatilite implicite par la methode de Newton-Raphson.
-    Renvoie None si la methode ne converge pas.
+    if option_type == "call":
+        return max(S - K * np.exp(-r * T), 0.0)
+    return max(K * np.exp(-r * T) - S, 0.0)
+
+
+def volatilite_implicite_newton(prix_marche, S, K, T, r, option_type,
+                                sigma_init=0.3, tolerance=1e-8,
+                                max_iterations=100):
+    """Recherche la volatilite implicite par la methode de Newton-Raphson.
+
+    Renvoie None si la methode ne converge pas ou si le probleme est mal
+    pose (prix sous la borne d'arbitrage, ou vega trop faible pour que la
+    volatilite soit identifiable numeriquement).
     """
+    if prix_marche <= borne_arbitrage(S, K, T, r, option_type) + 1e-10:
+        return None
+
     sigma = sigma_init
 
-    for i in range(max_iterations):
-        prix_estime = black_scholes(S, K, T, r, sigma, option_type)
-        ecart = prix_estime - prix_marche
-
-        if abs(ecart) < tolerance:
-            return sigma
-
+    for _ in range(max_iterations):
         d1, _ = calcule_d1_d2(S, K, T, r, sigma)
         vega_brut = S * norm.pdf(d1) * np.sqrt(T)
 
+        # Sans vega, le prix ne reagit plus a sigma : rien a inverser.
         if vega_brut < 1e-8:
             return None
 
+        ecart = black_scholes(S, K, T, r, sigma, option_type) - prix_marche
+
+        # Tolerance relative au prix : un ecart de 1e-6 n'a pas le meme sens
+        # sur une option a 0.01 et sur une option a 80.
+        if abs(ecart) < tolerance * max(1.0, abs(prix_marche)):
+            return sigma
+
         sigma = sigma - ecart / vega_brut
+
+        if sigma <= 0 or sigma > 5:
+            return None
 
     return None
 
 
 def volatilite_implicite(prix_marche, S, K, T, r, option_type):
+    """Volatilite implicite : Newton-Raphson, avec Brent en filet de securite.
+
+    Newton est rapide mais diverge quand le vega approche zero (options tres
+    dans ou hors de la monnaie). Brent ne depend pas de la derivee et trouve
+    la solution dans un intervalle donne, au prix de plus d'iterations.
+
+    Renvoie None quand la volatilite n'est pas identifiable.
     """
-    Calcule la volatilite implicite. Essaie Newton-Raphson d'abord (rapide),
-    puis scipy.optimize.brentq en filet de securite si Newton-Raphson diverge.
-    """
+    # Sans valeur temps, le prix ne depend plus du tout de sigma : n'importe
+    # quelle volatilite redonne le meme prix. Inutile d'essayer d'inverser.
+    if prix_marche <= borne_arbitrage(S, K, T, r, option_type) + 1e-10:
+        return None
+
     sigma = volatilite_implicite_newton(prix_marche, S, K, T, r, option_type)
 
     if sigma is not None:
@@ -168,56 +218,57 @@ def volatilite_implicite(prix_marche, S, K, T, r, option_type):
     def ecart_prix(sigma_test):
         return black_scholes(S, K, T, r, sigma_test, option_type) - prix_marche
 
-    return brentq(ecart_prix, 1e-6, 5)
+    try:
+        return brentq(ecart_prix, 1e-6, 5)
+    except ValueError:
+        # Pas de changement de signe sur l'intervalle : pas de solution.
+        return None
+
 
 def calcule_smile(ticker_obj, date_expiration_str, spot, r):
+    """Smile de volatilite implicite pour une echeance donnee.
+
+    Utilise uniquement les options hors de la monnaie (puts sous le spot,
+    calls au-dessus), les plus liquides et donc les plus fiables.
+    Renvoie (strikes, vols, T), tries par strike croissant.
     """
-    Calcule le smile de volatilite implicite pour une echeance donnee.
-    Utilise les puts OTM sous le spot et les calls OTM au-dessus.
-    Renvoie (liste_strikes, liste_vols, T).
-    """
-    aujourdhui = datetime.today()
+    from datetime import datetime
+
     date_exp = datetime.strptime(date_expiration_str, "%Y-%m-%d")
-    jours = (date_exp - aujourdhui).days
+    jours = (date_exp - datetime.today()).days
 
     if jours <= 0:
         return [], [], 0
 
     T = jours / 365
-    chaine_locale = ticker_obj.option_chain(date_expiration_str)
+    chaine = ticker_obj.option_chain(date_expiration_str)
 
-    puts_otm = chaine_locale.puts[
-        (chaine_locale.puts["lastPrice"] > 0.1)
-        & (chaine_locale.puts["strike"] > spot * 0.85)
-        & (chaine_locale.puts["strike"] <= spot)
+    puts_otm = chaine.puts[
+        (chaine.puts["lastPrice"] > 0.1)
+        & (chaine.puts["strike"] > spot * 0.85)
+        & (chaine.puts["strike"] <= spot)
     ]
 
-    calls_otm = chaine_locale.calls[
-        (chaine_locale.calls["lastPrice"] > 0.1)
-        & (chaine_locale.calls["strike"] > spot)
-        & (chaine_locale.calls["strike"] < spot * 1.15)
+    calls_otm = chaine.calls[
+        (chaine.calls["lastPrice"] > 0.1)
+        & (chaine.calls["strike"] > spot)
+        & (chaine.calls["strike"] < spot * 1.15)
     ]
 
     strikes = []
     vols = []
 
-    for index, ligne in puts_otm.iterrows():
-        try:
-            vi = volatilite_implicite(ligne["lastPrice"], spot, ligne["strike"], T, r, "put")
-            if vi is not None and 0.01 < vi < 3:
-                strikes.append(ligne["strike"])
-                vols.append(vi)
-        except Exception:
-            continue
-
-    for index, ligne in calls_otm.iterrows():
-        try:
-            vi = volatilite_implicite(ligne["lastPrice"], spot, ligne["strike"], T, r, "call")
-            if vi is not None and 0.01 < vi < 3:
-                strikes.append(ligne["strike"])
-                vols.append(vi)
-        except Exception:
-            continue
+    for source, type_option in [(puts_otm, "put"), (calls_otm, "call")]:
+        for _, ligne in source.iterrows():
+            try:
+                vi = volatilite_implicite(
+                    ligne["lastPrice"], spot, ligne["strike"], T, r, type_option
+                )
+                if vi is not None and 0.01 < vi < 3:
+                    strikes.append(ligne["strike"])
+                    vols.append(vi)
+            except Exception:
+                continue
 
     points_tries = sorted(zip(strikes, vols))
     strikes = [p[0] for p in points_tries]
@@ -225,23 +276,25 @@ def calcule_smile(ticker_obj, date_expiration_str, spot, r):
 
     return strikes, vols, T
 
+
+# ---------------------------------------------------------------------------
+# Delta-hedging
+# ---------------------------------------------------------------------------
+
 def simule_delta_hedging(S, K, T, r, sigma, n_rebalancements, seed=None):
-    """
-    Simule la couverture en delta d'un call vendu, sur une trajectoire de prix.
+    """Simule la couverture en delta d'un call vendu sur une trajectoire.
 
-    Le vendeur encaisse la prime Black-Scholes, achete delta actions, et
-    reajuste sa position a chaque pas. Le solde de tresorerie porte interet
-    au taux sans risque.
-
-    Renvoie un dictionnaire contenant la trajectoire et le P&L final.
+    Le vendeur encaisse la prime Black-Scholes, achete delta actions, puis
+    reajuste a chaque pas. Le solde de tresorerie porte interet au taux
+    sans risque. Le P&L final mesure l'erreur de couverture due au fait
+    que le reajustement est discret et non continu.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
 
     dt = T / n_rebalancements
 
     # Trajectoire du sous-jacent (mouvement brownien geometrique)
-    chocs = np.random.standard_normal(n_rebalancements)
+    chocs = rng.standard_normal(n_rebalancements)
     prix = np.zeros(n_rebalancements + 1)
     prix[0] = S
 
@@ -250,17 +303,14 @@ def simule_delta_hedging(S, K, T, r, sigma, n_rebalancements, seed=None):
             (r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * chocs[i]
         )
 
-    # Vente du call : on encaisse la prime
     prime = black_scholes(S, K, T, r, sigma, "call")
 
-    # Couverture initiale
     delta_courant = delta(S, K, T, r, sigma, "call")
     tresorerie = prime - delta_courant * S
 
     positions = np.zeros(n_rebalancements + 1)
     positions[0] = delta_courant
 
-    # Reajustements
     for i in range(1, n_rebalancements):
         temps_restant = T - i * dt
         tresorerie = tresorerie * np.exp(r * dt)
@@ -289,17 +339,29 @@ def simule_delta_hedging(S, K, T, r, sigma, n_rebalancements, seed=None):
     }
 
 
+# ---------------------------------------------------------------------------
+# Demonstration sur donnees reelles
+#
+# Les imports lourds (yfinance, matplotlib, plotly) restent ici : ils ne
+# servent qu'a cette demonstration, et app.py n'a pas a les charger.
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
+    from datetime import datetime
+
+    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
+    import yfinance as yf
+
     ticker = yf.Ticker("AAPL")
     data = ticker.history(period="1y")
 
-    spot_reel = data["Close"].iloc[-1]
-
+    spot_reel = float(data["Close"].iloc[-1])
     rendements = np.log(data["Close"] / data["Close"].shift(1))
     vol_historique = rendements.std() * np.sqrt(252)
 
-    print("Prix actuel d'Apple (spot réel) :", spot_reel)
-    print("Volatilité historique annualisée :", vol_historique)
+    print("Prix actuel d'Apple (spot reel) :", spot_reel)
+    print("Volatilite historique annualisee :", vol_historique)
 
     S = spot_reel
     K = round(spot_reel)
@@ -307,53 +369,45 @@ if __name__ == "__main__":
     r = 0.03
     sigma = vol_historique
 
-        
-
-
+    # --- Prix et parite call-put ---
     prix_call = black_scholes(S, K, T, r, sigma, "call")
     prix_put = black_scholes(S, K, T, r, sigma, "put")
     print("Prix du call :", prix_call)
     print("Prix du put :", prix_put)
+    print("Parite call-put respectee :",
+          np.isclose(prix_call - prix_put, S - K * np.exp(-r * T)))
 
-    parite_ok = np.isclose(prix_call - prix_put, S - K * np.exp(-r * T))
-    print("Parité call-put respectée :", parite_ok)
-
-    delta_call = delta(S, K, T, r, sigma, "call")
-    delta_put = delta(S, K, T, r, sigma, "put")
-    print("Delta du call :", delta_call)
-    print("Delta du put :", delta_put)
-    gamma_option = gamma(S, K, T, r, sigma)
-    print("Gamma :", gamma_option)
-    vega_option = vega(S, K, T, r, sigma)
-    print("Vega :", vega_option)
-    theta_call = theta(S, K, T, r, sigma, "call")
-    theta_put = theta(S, K, T, r, sigma, "put")
-    print("Theta du call (par jour) :", theta_call)
-    print("Theta du put (par jour) :", theta_put)
+    # --- Grecques ---
+    print("Delta du call :", delta(S, K, T, r, sigma, "call"))
+    print("Delta du put :", delta(S, K, T, r, sigma, "put"))
+    print("Gamma :", gamma(S, K, T, r, sigma))
+    print("Vega :", vega(S, K, T, r, sigma))
+    print("Theta du call (par jour) :", theta(S, K, T, r, sigma, "call"))
+    print("Theta du put (par jour) :", theta(S, K, T, r, sigma, "put"))
 
     rho_call = rho(S, K, T, r, sigma, "call")
     rho_put = rho(S, K, T, r, sigma, "put")
     print("Rho du call :", rho_call)
     print("Rho du put :", rho_put)
+    print("Relation Rho call/put respectee :",
+          np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100))
 
-    rho_check = np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100)
-    print("Relation Rho call/put respectée :", rho_check)
-
+    # --- Echeance reelle ---
     dates_disponibles = ticker.options
     print("Dates d'expiration disponibles :", dates_disponibles)
 
     date_choisie = dates_disponibles[7]
-    aujourdhui = datetime.today()
     date_expiration = datetime.strptime(date_choisie, "%Y-%m-%d")
-    jours_restants = (date_expiration - aujourdhui).days
+    jours_restants = (date_expiration - datetime.today()).days
     T_reel = jours_restants / 365
 
     print("Date d'expiration choisie :", date_choisie)
     print("Jours restants avant expiration :", jours_restants)
-    print("T réel (en années) :", T_reel)
+    print("T reel (en annees) :", T_reel)
 
+    # --- Comparaison au prix cote ---
     chaine = ticker.option_chain(date_choisie)
-    calls = chaine.calls
+    calls = chaine.calls.copy()
 
     calls["ecart"] = (calls["strike"] - spot_reel).abs()
     option_proche = calls.sort_values("ecart").iloc[0]
@@ -361,83 +415,47 @@ if __name__ == "__main__":
     K_reel = option_proche["strike"]
     prix_marche = option_proche["lastPrice"]
 
-    print("Strike réel le plus proche du spot :", K_reel)
-    print("Prix du call coté sur le marché :", prix_marche)
+    print("Strike reel le plus proche du spot :", K_reel)
+    print("Prix du call cote sur le marche :", prix_marche)
 
     prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
-    print("Prix théorique (notre modèle) :", prix_theorique)
+    print("Prix theorique (notre modele) :", prix_theorique)
+    print("Ecart entre marche et modele :", prix_marche - prix_theorique)
 
-    ecart_prix = prix_marche - prix_theorique
-    print("Écart entre marché et modèle :", ecart_prix)
-
+    # --- Convergence des methodes ---
     prix_call_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
     print("Prix du call (Monte Carlo) :", prix_call_mc)
-    print("Prix du call (Black-Scholes) :", prix_theorique)
+    print("Ecart Monte Carlo vs Black-Scholes :",
+          abs(prix_call_mc - prix_theorique))
 
-    ecart_mc = abs(prix_call_mc - prix_theorique)
-    print("Ecart Monte Carlo vs Black-Scholes :", ecart_mc)
-
-    prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call", exercise_type="europeenne", N=500)
+    prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call",
+                                       exercise_type="europeenne", N=500)
     print("Prix du call (arbre binomial) :", prix_call_binomial)
-    print("Prix du call (Black-Scholes) :", prix_theorique)
+    print("Ecart arbre binomial vs Black-Scholes :",
+          abs(prix_call_binomial - prix_theorique))
 
-    ecart_binomial = abs(prix_call_binomial - prix_theorique)
-    print("Ecart arbre binomial vs Black-Scholes :", ecart_binomial)
+    # --- Exercice anticipe ---
+    put_eu = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
+                           exercise_type="europeenne", N=500)
+    put_us = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
+                           exercise_type="americaine", N=500)
+    print("Prix du put europeen (arbre) :", put_eu)
+    print("Prix du put americain (arbre) :", put_us)
+    print("Prime d'exercice anticipe (put) :", put_us - put_eu)
 
-    prix_put_europeen = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="europeenne", N=500)
-    prix_put_americain = binomial_tree(S, K_reel, T_reel, r, sigma, "put", exercise_type="americaine", N=500)
-
-    print("Prix du put europeen (arbre) :", prix_put_europeen)
-    print("Prix du put americain (arbre) :", prix_put_americain)
-    print("Prime d'exercice anticipe (put) :", prix_put_americain - prix_put_europeen)
-
+    # --- Volatilite implicite ---
     vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel, r, "call")
     print("Volatilite implicite (deduite du marche) :", vol_implicite)
     print("Volatilite historique (calculee plus tot) :", sigma)
 
-    prix_verif = black_scholes(S, K_reel, T_reel, r, vol_implicite, "call")
-    print("Prix Black-Scholes avec cette vol implicite :", prix_verif)
-    print("Prix reel du marche :", prix_marche)
+    if vol_implicite is not None:
+        print("Prix Black-Scholes avec cette vol implicite :",
+              black_scholes(S, K_reel, T_reel, r, vol_implicite, "call"))
+        print("Prix reel du marche :", prix_marche)
 
-    puts = chaine.puts
-
-    puts_otm = puts[
-        (puts["lastPrice"] > 0.1)
-        & (puts["strike"] > spot_reel * 0.85)
-        & (puts["strike"] <= spot_reel)
-    ]
-
-    calls_otm = calls[
-        (calls["lastPrice"] > 0.1)
-        & (calls["strike"] > spot_reel)
-        & (calls["strike"] < spot_reel * 1.15)
-    ]
-
-    strikes_smile = []
-    vols_smile = []
-
-    for index, ligne in puts_otm.iterrows():
-        try:
-            vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "put")
-            if vi is not None and 0.01 < vi < 3:
-                strikes_smile.append(ligne["strike"])
-                vols_smile.append(vi)
-        except Exception:
-            continue
-
-    for index, ligne in calls_otm.iterrows():
-        try:
-            vi = volatilite_implicite(ligne["lastPrice"], S, ligne["strike"], T_reel, r, "call")
-            if vi is not None and 0.01 < vi < 3:
-                strikes_smile.append(ligne["strike"])
-                vols_smile.append(vi)
-        except Exception:
-            continue
-
-    points = sorted(zip(strikes_smile, vols_smile))
-    strikes_smile = [p[0] for p in points]
-    vols_smile = [p[1] for p in points]
-
+    # --- Smile ---
+    strikes_smile, vols_smile, _ = calcule_smile(ticker, date_choisie,
+                                                 spot_reel, r)
     print("Nombre de points calcules pour le smile :", len(strikes_smile))
 
     plt.figure(figsize=(10, 6))
@@ -451,13 +469,12 @@ if __name__ == "__main__":
     plt.savefig("smile_matplotlib.png", dpi=150)
     plt.show()
 
-    echeances_surface = dates_disponibles[5:12]
-
+    # --- Surface ---
     x_strikes = []
     y_maturites = []
     z_vols = []
 
-    for date_exp in echeances_surface:
+    for date_exp in dates_disponibles[5:12]:
         strikes_e, vols_e, T_e = calcule_smile(ticker, date_exp, spot_reel, r)
 
         if len(strikes_e) < 5:
@@ -471,25 +488,21 @@ if __name__ == "__main__":
     print("Nombre total de points pour la surface :", len(z_vols))
 
     figure_3d = go.Figure(data=[go.Mesh3d(
-        x=x_strikes,
-        y=y_maturites,
-        z=z_vols,
-        intensity=z_vols,
-        colorscale="Viridis",
-        opacity=0.9
+        x=x_strikes, y=y_maturites, z=z_vols,
+        intensity=z_vols, colorscale="Viridis", opacity=0.9,
     )])
-
     figure_3d.update_layout(
         title="Surface de volatilite implicite - AAPL",
         scene=dict(
             xaxis_title="Moneyness (Strike / Spot)",
             yaxis_title="Jours avant expiration",
-            zaxis_title="Volatilite implicite"
-        )
+            zaxis_title="Volatilite implicite",
+        ),
     )
-
     figure_3d.write_html("surface_volatilite.html")
     figure_3d.show()
+
+    # --- Delta-hedging : loi en 1/sqrt(n) ---
     print("\n--- Simulation de delta-hedging ---")
     print("(300 trajectoires par frequence de reajustement)")
     print(f"{'Pas':>6} | {'P&L moyen':>10} | {'Ecart-type':>10} | {'x sqrt(n)':>10}")
@@ -499,23 +512,7 @@ if __name__ == "__main__":
             simule_delta_hedging(100, 100, 1, 0.03, 0.20, n, seed=i)["pnl"]
             for i in range(300)
         ]
-        moyenne = np.mean(pnls)
         ecart_type = np.std(pnls)
-        print(f"{n:6d} | {moyenne:+10.4f} | {ecart_type:10.4f} | "
+        print(f"{n:6d} | {np.mean(pnls):+10.4f} | {ecart_type:10.4f} | "
               f"{ecart_type * np.sqrt(n):10.4f}")
         
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

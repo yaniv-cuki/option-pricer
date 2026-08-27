@@ -179,6 +179,27 @@ st.write(t("app_intro"))
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=60)
+def charger_intraday(symbole):
+    """Recupere la serie intraday et la variation depuis la cloture precedente."""
+    tk = yf.Ticker(symbole)
+    intraday = tk.history(period="1d", interval="5m")
+    recent = tk.history(period="5d")
+
+    if intraday.empty or len(recent) < 2:
+        return None
+
+    dernier = float(intraday["Close"].iloc[-1])
+    cloture_precedente = float(recent["Close"].iloc[-2])
+    variation = dernier - cloture_precedente
+
+    return {
+        "dernier": dernier,
+        "variation": variation,
+        "variation_pct": variation / cloture_precedente * 100,
+        "serie": [float(x) for x in intraday["Close"].tolist()],
+    }
+
+@st.cache_data(ttl=60)
 def charger_donnees_marche(symbole):
     """Recupere le spot courant et la volatilite historique annualisee sur 1 an.
 
@@ -211,26 +232,7 @@ def charger_echeances(symbole):
     return list(tk.options)
 
 
-@st.cache_data(ttl=60)
-def charger_intraday(symbole):
-    """Recupere la serie intraday et la variation depuis la cloture precedente."""
-    tk = yf.Ticker(symbole)
-    intraday = tk.history(period="1d", interval="5m")
-    recent = tk.history(period="5d")
 
-    if intraday.empty or len(recent) < 2:
-        return None
-
-    dernier = float(intraday["Close"].iloc[-1])
-    cloture_precedente = float(recent["Close"].iloc[-2])
-    variation = dernier - cloture_precedente
-
-    return {
-        "dernier": dernier,
-        "variation": variation,
-        "variation_pct": variation / cloture_precedente * 100,
-        "serie": [float(x) for x in intraday["Close"].tolist()],
-    }
 
 
 @st.fragment(run_every="30s")
@@ -595,6 +597,86 @@ if "echeances" in st.session_state:
         st.plotly_chart(fig_smile, width="stretch")
 
         st.caption(t("caption_smile"))
+
+
+# ---------------------------------------------------------------------------
+# Surface de volatilite implicite
+# ---------------------------------------------------------------------------
+
+st.header(t("header_surface"))
+st.write(t("surface_intro"))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def construire_surface(symbole, spot, r, indices=(5, 6, 7, 8, 9, 10, 11)):
+    """Calcule les points de la surface sur plusieurs echeances."""
+    tk = yf.Ticker(symbole)
+    dates = list(tk.options)
+
+    x_moneyness = []
+    y_jours = []
+    z_vols = []
+    n_echeances = 0
+
+    for idx in indices:
+        if idx >= len(dates):
+            continue
+
+        strikes, vols, T_e = calcule_smile(tk, dates[idx], spot, r)
+
+        if len(strikes) < 5:
+            continue
+
+        n_echeances += 1
+
+        for k, v in zip(strikes, vols):
+            x_moneyness.append(k / spot)
+            y_jours.append(T_e * 365)
+            z_vols.append(v)
+
+    return x_moneyness, y_jours, z_vols, n_echeances
+
+
+if st.button(t("surface_button")):
+    st.session_state["surface_lancee"] = True
+
+if st.session_state.get("surface_lancee"):
+    with st.spinner(t("surface_spinner")):
+        x_m, y_j, z_v, n_ech = construire_surface(ticker_input, S, r)
+
+    if len(z_v) < 20:
+        st.warning(t("surface_few_data"))
+    else:
+        col_s, col_t = st.columns(2)
+        col_s.metric(t("surface_points"), len(z_v))
+        col_t.metric(t("surface_expiries"), n_ech)
+
+        fig_surface = go.Figure(data=[go.Mesh3d(
+            x=x_m,
+            y=y_j,
+            z=z_v,
+            intensity=z_v,
+            colorscale="Viridis",
+            opacity=0.92,
+            showscale=True,
+            colorbar=dict(title=t("axis_iv"), tickformat=".1%"),
+        )])
+
+        fig_surface.update_layout(
+            template="plotly_dark",
+            height=620,
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=20, b=0),
+            scene=dict(
+                xaxis_title=t("axis_moneyness"),
+                yaxis_title=t("axis_days"),
+                zaxis_title=t("axis_iv"),
+                camera=dict(eye=dict(x=1.6, y=-1.5, z=0.8)),
+            ),
+        )
+
+        st.plotly_chart(fig_surface, width="stretch")
+        st.caption(t("caption_surface"))
 
 # ---------------------------------------------------------------------------
 # Simulation de delta-hedging
