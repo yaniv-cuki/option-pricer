@@ -10,7 +10,6 @@ TRADUCTIONS = {
     # Anglais (langue par defaut)
     # -----------------------------------------------------------------------
     "en": {
-        
         "app_title": "European Options Pricer - Black-Scholes",
         "app_intro": (
             "Pricing model with Greeks computation, comparison of numerical "
@@ -36,6 +35,18 @@ TRADUCTIONS = {
         # Bandeau live
         "live_unavailable": "Intraday data unavailable for this ticker.",
         "live_meta": "Delayed data ~15 min &nbsp;|&nbsp; Updated {heure}",
+
+        # Source des donnees d'options
+        "source_live": "Live option chains from Yahoo Finance.",
+        "source_snapshot": (
+            "Live option chains are unavailable right now — Yahoo Finance "
+            "rate-limits requests coming from cloud servers. Falling back to "
+            "a snapshot taken on {date}. Spot prices above are still live."
+        ),
+        "source_none": (
+            "No option chain available for this ticker, live or in the "
+            "snapshot. Snapshot covers: {tickers}."
+        ),
 
         # Prix
         "header_price": "Option price",
@@ -94,7 +105,6 @@ TRADUCTIONS = {
         ),
         "smile_button": "Analyse the volatility smile",
         "smile_no_expiry": "No expiry available for this ticker.",
-        "smile_fetch_error": "Could not retrieve expiries: {erreur}",
         "smile_expiry_label": "Expiry",
         "smile_spinner": "Computing implied volatilities...",
         "smile_few_points": (
@@ -110,7 +120,30 @@ TRADUCTIONS = {
             "If Black-Scholes were exact, this curve would be flat. Its slope "
             "(skew) reflects the premium the market pays for downside protection."
         ),
-                # Delta-hedging
+
+        # Surface de volatilite
+        "header_surface": "Implied volatility surface",
+        "surface_intro": (
+            "Stacking several expiries turns the smile into a surface. Beyond "
+            "the strike dimension it shows the term structure: short-dated "
+            "skew is steeper and noisier, longer maturities flatten out."
+        ),
+        "surface_button": "Build the surface",
+        "surface_spinner": "Computing implied volatilities across expiries...",
+        "surface_points": "Points computed",
+        "surface_expiries": "Expiries used",
+        "surface_few_data": (
+            "Not enough usable data to build a surface for this ticker."
+        ),
+        "axis_moneyness": "Moneyness (strike / spot)",
+        "axis_days": "Days to expiry",
+        "caption_surface": (
+            "Built from raw market quotes, without smoothing. Isolated spikes "
+            "come from illiquid contracts whose last traded price is stale — "
+            "desks fit a parametric model (SVI) to clean this up."
+        ),
+
+        # Delta-hedging
         "header_hedging": "Delta-hedging simulation",
         "hedging_intro": (
             "A trader who sells this call hedges it by holding delta shares of "
@@ -144,34 +177,12 @@ TRADUCTIONS = {
             "rebalancing frequency only halves the risk, while transaction "
             "costs grow linearly."
         ),
-                # Surface de volatilite
-        "header_surface": "Implied volatility surface",
-        "surface_intro": (
-            "Stacking several expiries turns the smile into a surface. Beyond "
-            "the strike dimension it shows the term structure: short-dated "
-            "skew is steeper and noisier, longer maturities flatten out."
-        ),
-        "surface_button": "Build the surface",
-        "surface_spinner": "Computing implied volatilities across expiries...",
-        "surface_points": "Points computed",
-        "surface_expiries": "Expiries used",
-        "surface_few_data": (
-            "Not enough usable data to build a surface for this ticker."
-        ),
-        "axis_moneyness": "Moneyness (strike / spot)",
-        "axis_days": "Days to expiry",
-        "caption_surface": (
-            "Built from raw market quotes, without smoothing. Isolated spikes "
-            "come from illiquid contracts whose last traded price is stale — "
-            "desks fit a parametric model (SVI) to clean this up."
-        ),
     },
 
     # -----------------------------------------------------------------------
     # Francais
     # -----------------------------------------------------------------------
     "fr": {
-        
         "app_title": "Pricer d'options europeennes - Black-Scholes",
         "app_intro": (
             "Modele de pricing avec calcul des grecques, comparaison de methodes "
@@ -197,6 +208,18 @@ TRADUCTIONS = {
         # Bandeau live
         "live_unavailable": "Donnees intraday indisponibles pour ce ticker.",
         "live_meta": "Donnees differees ~15 min &nbsp;|&nbsp; MAJ {heure}",
+
+        # Source des donnees d'options
+        "source_live": "Chaines d'options recuperees en direct sur Yahoo Finance.",
+        "source_snapshot": (
+            "Les chaines d'options en direct sont indisponibles : Yahoo Finance "
+            "limite les requetes venant des serveurs cloud. Repli sur un "
+            "instantane du {date}. Les prix spot ci-dessus restent en direct."
+        ),
+        "source_none": (
+            "Aucune chaine d'options disponible pour ce ticker, ni en direct ni "
+            "dans l'instantane. L'instantane couvre : {tickers}."
+        ),
 
         # Prix
         "header_price": "Prix de l'option",
@@ -256,7 +279,6 @@ TRADUCTIONS = {
         ),
         "smile_button": "Analyser le smile de volatilite",
         "smile_no_expiry": "Aucune echeance disponible pour ce ticker.",
-        "smile_fetch_error": "Impossible de recuperer les echeances : {erreur}",
         "smile_expiry_label": "Echeance",
         "smile_spinner": "Calcul des volatilites implicites en cours...",
         "smile_few_points": (
@@ -274,7 +296,8 @@ TRADUCTIONS = {
             "Sa pente (skew) traduit la prime payee par le marche pour se "
             "proteger contre une baisse."
         ),
-                # Surface de volatilite
+
+        # Surface de volatilite
         "header_surface": "Surface de volatilite implicite",
         "surface_intro": (
             "Empiler plusieurs echeances transforme le smile en surface. Au-dela "
@@ -297,40 +320,41 @@ TRADUCTIONS = {
             "traite est perime — les desks ajustent un modele parametrique (SVI) "
             "pour nettoyer cela."
         ),
-         # Delta-hedging
-                "header_hedging": "Simulation de delta-hedging",
-                "hedging_intro": (
-                    "Un trader qui vend ce call se couvre en detenant delta actions du "
-                    "sous-jacent, et reajuste sa position quand le delta bouge. En temps "
-                    "continu la couverture serait parfaite. En pratique elle est discrete, "
-                    "et c'est l'erreur residuelle que mesure cette section."
-                ),
-                "hedging_freq": "Reajustements sur la duree de vie de l'option",
-                "hedging_button": "Lancer la simulation",
-                "hedging_spinner": "Simulation des trajectoires couvertes...",
-                "metric_premium": "Prime encaissee",
-                "metric_pnl": "P&L final",
-                "metric_hedge_error": "Erreur vs prime",
-                "legend_price": "Prix du sous-jacent",
-                "legend_delta_pos": "Position en delta",
-                "axis_time": "Temps (fraction de la maturite)",
-                "axis_price": "Prix du sous-jacent",
-                "axis_delta_pos": "Actions detenues",
-                "caption_trajectory": (
-                    "La couverture suit le sous-jacent : la position augmente quand "
-                    "l'option entre dans la monnaie et diminue quand elle en sort."
-                ),
-                "hedging_convergence": "Erreur de couverture selon la frequence de reajustement",
-                "axis_rebalancings": "Nombre de reajustements (echelle log)",
-                "axis_std": "Ecart-type du P&L (echelle log)",
-                "legend_observed": "Observe",
-                "legend_theory": "Theorie en 1/sqrt(n)",
-                "caption_convergence": (
-                    "En echelle log-log, une loi de puissance apparait comme une droite. "
-                    "La pente observee correspond au -1/2 theorique : quadrupler la "
-                    "frequence de reajustement ne divise le risque que par deux, alors "
-                    "que les couts de transaction croissent lineairement."
-                ),
+
+        # Delta-hedging
+        "header_hedging": "Simulation de delta-hedging",
+        "hedging_intro": (
+            "Un trader qui vend ce call se couvre en detenant delta actions du "
+            "sous-jacent, et reajuste sa position quand le delta bouge. En temps "
+            "continu la couverture serait parfaite. En pratique elle est discrete, "
+            "et c'est l'erreur residuelle que mesure cette section."
+        ),
+        "hedging_freq": "Reajustements sur la duree de vie de l'option",
+        "hedging_button": "Lancer la simulation",
+        "hedging_spinner": "Simulation des trajectoires couvertes...",
+        "metric_premium": "Prime encaissee",
+        "metric_pnl": "P&L final",
+        "metric_hedge_error": "Erreur vs prime",
+        "legend_price": "Prix du sous-jacent",
+        "legend_delta_pos": "Position en delta",
+        "axis_time": "Temps (fraction de la maturite)",
+        "axis_price": "Prix du sous-jacent",
+        "axis_delta_pos": "Actions detenues",
+        "caption_trajectory": (
+            "La couverture suit le sous-jacent : la position augmente quand "
+            "l'option entre dans la monnaie et diminue quand elle en sort."
+        ),
+        "hedging_convergence": "Erreur de couverture selon la frequence de reajustement",
+        "axis_rebalancings": "Nombre de reajustements (echelle log)",
+        "axis_std": "Ecart-type du P&L (echelle log)",
+        "legend_observed": "Observe",
+        "legend_theory": "Theorie en 1/sqrt(n)",
+        "caption_convergence": (
+            "En echelle log-log, une loi de puissance apparait comme une droite. "
+            "La pente observee correspond au -1/2 theorique : quadrupler la "
+            "frequence de reajustement ne divise le risque que par deux, alors "
+            "que les couts de transaction croissent lineairement."
+        ),
     },
 }
 
@@ -338,5 +362,4 @@ TRADUCTIONS = {
 LANGUES = {
     "en": "English",
     "fr": "Francais",
-           
 }

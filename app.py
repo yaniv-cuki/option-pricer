@@ -2,7 +2,8 @@
 Dashboard Streamlit - Pricer d'options europeennes.
 
 Interface interactive pour le moteur de pricing defini dans pricer.py.
-Textes de l'interface stockes dans traductions.py.
+Acces aux donnees de marche delegue a donnees.py, textes a traductions.py.
+
 Lancer avec :  streamlit run app.py
 """
 
@@ -11,9 +12,9 @@ from datetime import datetime
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
+from plotly.subplots import make_subplots
 
-
+import donnees
 from pricer import (
     binomial_tree,
     black_scholes,
@@ -22,14 +23,11 @@ from pricer import (
     gamma,
     monte_carlo_pricer,
     rho,
+    simule_delta_hedging,
     theta,
     vega,
-    simule_delta_hedging,
-    
 )
 from traductions import LANGUES, TRADUCTIONS
-from plotly.subplots import make_subplots
-
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +51,17 @@ def t(cle, **valeurs):
     """
     texte = TRADUCTIONS[langue][cle]
     return texte.format(**valeurs) if valeurs else texte
+
+
+def afficher_source(source):
+    """Indique a l'utilisateur d'ou proviennent les donnees d'options."""
+    if source == donnees.LIVE:
+        st.caption(t("source_live"))
+    elif source == donnees.SNAPSHOT:
+        st.info(t("source_snapshot", date=donnees.date_snapshot() or "?"))
+    else:
+        couverts = donnees.tickers_snapshot()
+        st.warning(t("source_none", tickers=", ".join(couverts) or "-"))
 
 
 # ---------------------------------------------------------------------------
@@ -175,76 +184,54 @@ st.write(t("app_intro"))
 
 
 # ---------------------------------------------------------------------------
-# Recuperation des donnees de marche (mise en cache)
+# Acces aux donnees, mis en cache
+#
+# Ces fonctions ne font qu'envelopper donnees.py dans le cache Streamlit :
+# la logique d'acces (direct puis repli) vit dans le module dedie.
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def charger_intraday(symbole):
-    """Recupere la serie intraday et la variation depuis la cloture precedente."""
-    tk = yf.Ticker(symbole)
-    intraday = tk.history(period="1d", interval="5m")
-    recent = tk.history(period="5d")
-
-    if intraday.empty or len(recent) < 2:
-        return None
-
-    dernier = float(intraday["Close"].iloc[-1])
-    cloture_precedente = float(recent["Close"].iloc[-2])
-    variation = dernier - cloture_precedente
-
-    return {
-        "dernier": dernier,
-        "variation": variation,
-        "variation_pct": variation / cloture_precedente * 100,
-        "serie": [float(x) for x in intraday["Close"].tolist()],
-    }
-
-@st.cache_data(ttl=60)
-def charger_donnees_marche(symbole):
-    """Recupere le spot courant et la volatilite historique annualisee sur 1 an.
-
-    Le spot est pris sur la serie intraday quand elle est disponible, pour
-    rester coherent avec le prix affiche dans le bandeau de cotation.
-    """
-    tk = yf.Ticker(symbole)
-    historique = tk.history(period="1y")
-
-    if historique.empty:
-        return None, None
-
-    rendements_log = np.log(historique["Close"] / historique["Close"].shift(1))
-    vol = rendements_log.std() * np.sqrt(252)
-
-    donnees_intraday = charger_intraday(symbole)
-
-    if donnees_intraday is not None:
-        spot = donnees_intraday["dernier"]
-    else:
-        spot = float(historique["Close"].iloc[-1])
-
-    return spot, vol
+    return donnees.charger_intraday(symbole)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60, show_spinner=False)
+def charger_prix_et_volatilite(symbole):
+    return donnees.charger_prix_et_volatilite(symbole)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def charger_echeances(symbole):
-    """Recupere la liste des dates d'expiration d'options disponibles."""
-    tk = yf.Ticker(symbole)
-    return list(tk.options)
+    return donnees.charger_echeances(symbole)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def charger_chaine(symbole, date_expiration):
+    return donnees.charger_chaine(symbole, date_expiration)
 
+
+def spot_de_reference(symbole, source, spot_courant):
+    """Spot a utiliser pour la moneyness et l'inversion en volatilite.
+
+    Sur donnees figees, on prend le spot enregistre avec elles : melanger
+    des prix d'options anciens avec le spot du jour fausserait les
+    volatilites implicites.
+    """
+    if source == donnees.SNAPSHOT:
+        return donnees.spot_snapshot(symbole) or spot_courant
+    return spot_courant
 
 
 @st.fragment(run_every="30s")
 def bandeau_live(symbole):
     """Bandeau de cotation auto-rafraichi toutes les 30 secondes."""
-    donnees = charger_intraday(symbole)
+    infos = charger_intraday(symbole)
 
-    if donnees is None:
+    if infos is None:
         st.warning(t("live_unavailable"))
         return
 
-    hausse = donnees["variation"] >= 0
+    hausse = infos["variation"] >= 0
     sens = "up" if hausse else "down"
     signe = "+" if hausse else ""
     meta = t("live_meta", heure=datetime.now().strftime("%H:%M:%S"))
@@ -256,9 +243,9 @@ def bandeau_live(symbole):
             <span class="live-dot"></span>
             <span class="live-ticker">{symbole.upper()}</span>
         </span>
-        <span class="live-price">{donnees['dernier']:.2f}</span>
+        <span class="live-price">{infos['dernier']:.2f}</span>
         <span class="live-change {sens}">
-            {signe}{donnees['variation']:.2f} ({signe}{donnees['variation_pct']:.2f}%)
+            {signe}{infos['variation']:.2f} ({signe}{infos['variation_pct']:.2f}%)
         </span>
         <span class="live-meta">{meta}</span>
     </div>
@@ -271,7 +258,7 @@ def bandeau_live(symbole):
 
     fig_spark = go.Figure()
     fig_spark.add_trace(go.Scatter(
-        y=donnees["serie"],
+        y=infos["serie"],
         mode="lines",
         line=dict(width=2, color=couleur),
         fill="tozeroy",
@@ -286,7 +273,7 @@ def bandeau_live(symbole):
         xaxis=dict(visible=False),
         yaxis=dict(
             visible=False,
-            range=[min(donnees["serie"]) * 0.998, max(donnees["serie"]) * 1.002],
+            range=[min(infos["serie"]) * 0.998, max(infos["serie"]) * 1.002],
         ),
         showlegend=False,
     )
@@ -317,10 +304,11 @@ VALEURS_INITIALES = {
 for cle, valeur in VALEURS_INITIALES.items():
     if cle not in st.session_state:
         st.session_state[cle] = valeur
+
 # Au tout premier chargement, on aligne les curseurs sur le marche reel
 # plutot que de laisser les valeurs de repli.
 if "initialise" not in st.session_state:
-    spot_init, vol_init = charger_donnees_marche(st.session_state["ticker"])
+    spot_init, vol_init = charger_prix_et_volatilite(st.session_state["ticker"])
 
     if spot_init is not None:
         st.session_state["S"] = float(np.clip(spot_init, 50.0, 500.0))
@@ -332,7 +320,7 @@ if "initialise" not in st.session_state:
 ticker_input = st.sidebar.text_input(t("ticker_label"), key="ticker")
 
 if st.sidebar.button(t("load_button")):
-    spot_charge, vol_chargee = charger_donnees_marche(ticker_input)
+    spot_charge, vol_chargee = charger_prix_et_volatilite(ticker_input)
 
     if spot_charge is None:
         st.sidebar.error(t("load_error"))
@@ -533,70 +521,73 @@ st.header(t("header_smile"))
 st.write(t("smile_intro"))
 
 if st.button(t("smile_button")):
-    try:
-        echeances = charger_echeances(ticker_input)
+    st.session_state["smile_lance"] = True
 
-        if len(echeances) == 0:
-            st.error(t("smile_no_expiry"))
-        else:
-            st.session_state["echeances"] = echeances
-    except Exception as e:
-        st.error(t("smile_fetch_error", erreur=e))
+if st.session_state.get("smile_lance"):
+    echeances, source_echeances = charger_echeances(ticker_input)
 
-if "echeances" in st.session_state:
-    echeances = st.session_state["echeances"]
-    index_defaut = min(7, len(echeances) - 1)
-    echeance_choisie = st.selectbox(
-        t("smile_expiry_label"), echeances, index=index_defaut
-    )
-
-    with st.spinner(t("smile_spinner")):
-        ticker_obj = yf.Ticker(ticker_input)
-        strikes_smile, vols_smile, T_smile = calcule_smile(
-            ticker_obj, echeance_choisie, S, r
-        )
-
-    if len(strikes_smile) < 3:
-        st.warning(t("smile_few_points"))
+    if not echeances:
+        st.error(t("smile_no_expiry"))
+        afficher_source(source_echeances)
     else:
-        col_x, col_y, col_z = st.columns(3)
-        col_x.metric(t("smile_points"), len(strikes_smile))
-        col_y.metric(t("smile_iv_atm"),
-                     f"{np.interp(S, strikes_smile, vols_smile):.2%}")
-        col_z.metric(t("smile_hist_vol"), f"{sigma:.2%}")
+        afficher_source(source_echeances)
 
-        fig_smile = go.Figure()
-
-        fig_smile.add_trace(go.Scatter(
-            x=strikes_smile,
-            y=vols_smile,
-            mode="lines+markers",
-            name=t("axis_iv"),
-            line=dict(width=3, color="#4C9BE8"),
-            marker=dict(size=8),
-        ))
-
-        fig_smile.add_vline(x=S, line_dash="dash", line_color="#E8574C",
-                            annotation_text=t("label_spot", S=S),
-                            annotation_position="top")
-        fig_smile.add_hline(y=sigma, line_dash="dot", line_color="#E8A44C",
-                            annotation_text=t("label_hist_vol"),
-                            annotation_position="bottom right")
-
-        fig_smile.update_layout(
-            template="plotly_dark",
-            xaxis_title=t("axis_strike"),
-            yaxis_title=t("axis_iv"),
-            yaxis_tickformat=".1%",
-            height=450,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            margin=dict(l=40, r=40, t=30, b=40),
+        index_defaut = min(2, len(echeances) - 1)
+        echeance_choisie = st.selectbox(
+            t("smile_expiry_label"), echeances, index=index_defaut
         )
 
-        st.plotly_chart(fig_smile, width="stretch")
+        with st.spinner(t("smile_spinner")):
+            calls, puts, source_chaine = charger_chaine(
+                ticker_input, echeance_choisie
+            )
+            spot_ref = spot_de_reference(ticker_input, source_chaine, S)
+            T_smile = donnees.annees_jusqua(echeance_choisie)
+            strikes_smile, vols_smile = calcule_smile(
+                calls, puts, spot_ref, r, T_smile
+            )
 
-        st.caption(t("caption_smile"))
+        if len(strikes_smile) < 3:
+            st.warning(t("smile_few_points"))
+        else:
+            col_x, col_y, col_z = st.columns(3)
+            col_x.metric(t("smile_points"), len(strikes_smile))
+            col_y.metric(t("smile_iv_atm"),
+                         f"{np.interp(spot_ref, strikes_smile, vols_smile):.2%}")
+            col_z.metric(t("smile_hist_vol"), f"{sigma:.2%}")
+
+            fig_smile = go.Figure()
+
+            fig_smile.add_trace(go.Scatter(
+                x=strikes_smile,
+                y=vols_smile,
+                mode="lines+markers",
+                name=t("axis_iv"),
+                line=dict(width=3, color="#4C9BE8"),
+                marker=dict(size=8),
+            ))
+
+            fig_smile.add_vline(x=spot_ref, line_dash="dash",
+                                line_color="#E8574C",
+                                annotation_text=t("label_spot", S=spot_ref),
+                                annotation_position="top")
+            fig_smile.add_hline(y=sigma, line_dash="dot", line_color="#E8A44C",
+                                annotation_text=t("label_hist_vol"),
+                                annotation_position="bottom right")
+
+            fig_smile.update_layout(
+                template="plotly_dark",
+                xaxis_title=t("axis_strike"),
+                yaxis_title=t("axis_iv"),
+                yaxis_tickformat=".1%",
+                height=450,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=40, r=40, t=30, b=40),
+            )
+
+            st.plotly_chart(fig_smile, width="stretch")
+            st.caption(t("caption_smile"))
 
 
 # ---------------------------------------------------------------------------
@@ -606,56 +597,48 @@ if "echeances" in st.session_state:
 st.header(t("header_surface"))
 st.write(t("surface_intro"))
 
+if st.button(t("surface_button")):
+    st.session_state["surface_lancee"] = True
 
-@st.cache_data(ttl=300, show_spinner=False)
-def construire_surface(symbole, spot, r, indices=(5, 6, 7, 8, 9, 10, 11)):
-    """Calcule les points de la surface sur plusieurs echeances."""
-    tk = yf.Ticker(symbole)
-    dates = list(tk.options)
+if st.session_state.get("surface_lancee"):
+    echeances, source_echeances = charger_echeances(ticker_input)
+    afficher_source(source_echeances)
 
     x_moneyness = []
     y_jours = []
     z_vols = []
     n_echeances = 0
 
-    for idx in indices:
-        if idx >= len(dates):
-            continue
-
-        strikes, vols, T_e = calcule_smile(tk, dates[idx], spot, r)
-
-        if len(strikes) < 5:
-            continue
-
-        n_echeances += 1
-
-        for k, v in zip(strikes, vols):
-            x_moneyness.append(k / spot)
-            y_jours.append(T_e * 365)
-            z_vols.append(v)
-
-    return x_moneyness, y_jours, z_vols, n_echeances
-
-
-if st.button(t("surface_button")):
-    st.session_state["surface_lancee"] = True
-
-if st.session_state.get("surface_lancee"):
     with st.spinner(t("surface_spinner")):
-        x_m, y_j, z_v, n_ech = construire_surface(ticker_input, S, r)
+        for date_exp in echeances[:8]:
+            calls, puts, src = charger_chaine(ticker_input, date_exp)
+            spot_ref = spot_de_reference(ticker_input, src, S)
+            T_e = donnees.annees_jusqua(date_exp)
 
-    if len(z_v) < 20:
+            ks, vs = calcule_smile(calls, puts, spot_ref, r, T_e)
+
+            if len(ks) < 5:
+                continue
+
+            n_echeances += 1
+
+            for k, v in zip(ks, vs):
+                x_moneyness.append(k / spot_ref)
+                y_jours.append(T_e * 365)
+                z_vols.append(v)
+
+    if len(z_vols) < 20:
         st.warning(t("surface_few_data"))
     else:
         col_s, col_t = st.columns(2)
-        col_s.metric(t("surface_points"), len(z_v))
-        col_t.metric(t("surface_expiries"), n_ech)
+        col_s.metric(t("surface_points"), len(z_vols))
+        col_t.metric(t("surface_expiries"), n_echeances)
 
         fig_surface = go.Figure(data=[go.Mesh3d(
-            x=x_m,
-            y=y_j,
-            z=z_v,
-            intensity=z_v,
+            x=x_moneyness,
+            y=y_jours,
+            z=z_vols,
+            intensity=z_vols,
             colorscale="Viridis",
             opacity=0.92,
             showscale=True,
@@ -677,6 +660,7 @@ if st.session_state.get("surface_lancee"):
 
         st.plotly_chart(fig_surface, width="stretch")
         st.caption(t("caption_surface"))
+
 
 # ---------------------------------------------------------------------------
 # Simulation de delta-hedging
@@ -804,7 +788,6 @@ if st.session_state.get("hedging_lance"):
     st.caption(t("caption_convergence"))
 
 
-
 # ---------------------------------------------------------------------------
 # Pied de page
 # ---------------------------------------------------------------------------
@@ -813,6 +796,7 @@ st.markdown(
     """
 <div class="footer">
     Built by <strong>Yaniv C.</strong> &nbsp;|&nbsp;
+    <a href="https://github.com/yaniv-cuki/option-pricer" target="_blank">GitHub</a> &nbsp;|&nbsp;
     <a href="https://linkedin.com/in/yaniv-cukierman-b384a139b/" target="_blank">LinkedIn</a><br>
     Market data via Yahoo Finance (delayed ~15 min)
 </div>

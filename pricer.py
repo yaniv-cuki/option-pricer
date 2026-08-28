@@ -5,11 +5,11 @@ Contient les modeles (Black-Scholes, Monte Carlo, arbre binomial CRR),
 les grecques, l'inversion en volatilite implicite et une simulation
 de delta-hedging.
 
-Ce module ne depend pas de Streamlit : il peut etre importe dans un
-notebook, une suite de tests ou l'application app.py.
+Ce module ne depend ni de Streamlit ni d'aucune source de donnees : il
+recoit des nombres et renvoie des nombres. L'acquisition des donnees de
+marche est traitee dans donnees.py.
 
-Lancer directement (python3 pricer.py) execute une demonstration sur
-donnees reelles.
+Lancer directement (python3 pricer.py) execute une demonstration.
 """
 
 import numpy as np
@@ -225,56 +225,53 @@ def volatilite_implicite(prix_marche, S, K, T, r, option_type):
         return None
 
 
-def calcule_smile(ticker_obj, date_expiration_str, spot, r):
-    """Smile de volatilite implicite pour une echeance donnee.
+def calcule_smile(calls, puts, spot, r, T):
+    """Smile de volatilite implicite a partir de contrats cotes.
 
-    Utilise uniquement les options hors de la monnaie (puts sous le spot,
-    calls au-dessus), les plus liquides et donc les plus fiables.
-    Renvoie (strikes, vols, T), tries par strike croissant.
+    calls et puts sont des listes de dictionnaires contenant les cles
+    "strike" et "lastPrice". Cette fonction ne fait aucun appel reseau :
+    elle recoit les donnees deja acquises, ce qui la rend testable et
+    independante de leur provenance.
+
+    Seuls les contrats hors de la monnaie sont retenus (puts sous le spot,
+    calls au-dessus) : ce sont les plus liquides, donc les plus fiables.
+
+    Renvoie (strikes, vols), tries par strike croissant.
     """
-    from datetime import datetime
-
-    date_exp = datetime.strptime(date_expiration_str, "%Y-%m-%d")
-    jours = (date_exp - datetime.today()).days
-
-    if jours <= 0:
-        return [], [], 0
-
-    T = jours / 365
-    chaine = ticker_obj.option_chain(date_expiration_str)
-
-    puts_otm = chaine.puts[
-        (chaine.puts["lastPrice"] > 0.1)
-        & (chaine.puts["strike"] > spot * 0.85)
-        & (chaine.puts["strike"] <= spot)
-    ]
-
-    calls_otm = chaine.calls[
-        (chaine.calls["lastPrice"] > 0.1)
-        & (chaine.calls["strike"] > spot)
-        & (chaine.calls["strike"] < spot * 1.15)
-    ]
+    if T <= 0:
+        return [], []
 
     strikes = []
     vols = []
 
-    for source, type_option in [(puts_otm, "put"), (calls_otm, "call")]:
-        for _, ligne in source.iterrows():
+    for contrats, type_option in [(puts, "put"), (calls, "call")]:
+        for contrat in contrats:
+            K = contrat["strike"]
+            prix = contrat["lastPrice"]
+
+            # Ecarte les contrats sans transaction recente.
+            if prix <= 0.1:
+                continue
+
+            hors_monnaie = (
+                (type_option == "put" and spot * 0.85 < K <= spot)
+                or (type_option == "call" and spot < K < spot * 1.15)
+            )
+            if not hors_monnaie:
+                continue
+
             try:
-                vi = volatilite_implicite(
-                    ligne["lastPrice"], spot, ligne["strike"], T, r, type_option
-                )
-                if vi is not None and 0.01 < vi < 3:
-                    strikes.append(ligne["strike"])
-                    vols.append(vi)
+                vi = volatilite_implicite(prix, spot, K, T, r, type_option)
             except Exception:
                 continue
 
-    points_tries = sorted(zip(strikes, vols))
-    strikes = [p[0] for p in points_tries]
-    vols = [p[1] for p in points_tries]
+            if vi is not None and 0.01 < vi < 3:
+                strikes.append(K)
+                vols.append(vi)
 
-    return strikes, vols, T
+    points_tries = sorted(zip(strikes, vols))
+
+    return [p[0] for p in points_tries], [p[1] for p in points_tries]
 
 
 # ---------------------------------------------------------------------------
@@ -342,31 +339,31 @@ def simule_delta_hedging(S, K, T, r, sigma, n_rebalancements, seed=None):
 # ---------------------------------------------------------------------------
 # Demonstration sur donnees reelles
 #
-# Les imports lourds (yfinance, matplotlib, plotly) restent ici : ils ne
-# servent qu'a cette demonstration, et app.py n'a pas a les charger.
+# Les imports lourds restent ici : ils ne servent qu'a cette demonstration,
+# et app.py n'a pas a les charger.
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from datetime import datetime
-
     import matplotlib.pyplot as plt
     import plotly.graph_objects as go
-    import yfinance as yf
 
-    ticker = yf.Ticker("AAPL")
-    data = ticker.history(period="1y")
+    import donnees
 
-    spot_reel = float(data["Close"].iloc[-1])
-    rendements = np.log(data["Close"] / data["Close"].shift(1))
-    vol_historique = rendements.std() * np.sqrt(252)
+    SYMBOLE = "AAPL"
+    r = 0.03
 
-    print("Prix actuel d'Apple (spot reel) :", spot_reel)
+    spot_reel, vol_historique = donnees.charger_prix_et_volatilite(SYMBOLE)
+
+    if spot_reel is None:
+        print("Donnees de marche indisponibles.")
+        raise SystemExit(1)
+
+    print("Prix actuel (spot reel) :", spot_reel)
     print("Volatilite historique annualisee :", vol_historique)
 
     S = spot_reel
     K = round(spot_reel)
     T = 1
-    r = 0.03
     sigma = vol_historique
 
     # --- Prix et parite call-put ---
@@ -393,114 +390,123 @@ if __name__ == "__main__":
           np.isclose(rho_call - rho_put, K * T * np.exp(-r * T) / 100))
 
     # --- Echeance reelle ---
-    dates_disponibles = ticker.options
-    print("Dates d'expiration disponibles :", dates_disponibles)
+    echeances, source = donnees.charger_echeances(SYMBOLE)
+    print(f"\nEcheances disponibles ({source}) :", echeances)
 
-    date_choisie = dates_disponibles[7]
-    date_expiration = datetime.strptime(date_choisie, "%Y-%m-%d")
-    jours_restants = (date_expiration - datetime.today()).days
-    T_reel = jours_restants / 365
+    if not echeances:
+        print("Aucune echeance exploitable, fin de la demonstration.")
+        raise SystemExit(0)
 
-    print("Date d'expiration choisie :", date_choisie)
-    print("Jours restants avant expiration :", jours_restants)
+    date_choisie = echeances[min(2, len(echeances) - 1)]
+    T_reel = donnees.annees_jusqua(date_choisie)
+
+    print("Echeance choisie :", date_choisie)
     print("T reel (en annees) :", T_reel)
 
-    # --- Comparaison au prix cote ---
-    chaine = ticker.option_chain(date_choisie)
-    calls = chaine.calls.copy()
+    calls, puts, source_chaine = donnees.charger_chaine(SYMBOLE, date_choisie)
+    print(f"Chaine recuperee ({source_chaine}) :",
+          f"{len(calls)} calls, {len(puts)} puts")
 
-    calls["ecart"] = (calls["strike"] - spot_reel).abs()
-    option_proche = calls.sort_values("ecart").iloc[0]
+    # --- Comparaison au prix cote (strike le plus proche du spot) ---
+    if calls:
+        option_proche = min(calls, key=lambda c: abs(c["strike"] - spot_reel))
+        K_reel = option_proche["strike"]
+        prix_marche = option_proche["lastPrice"]
 
-    K_reel = option_proche["strike"]
-    prix_marche = option_proche["lastPrice"]
+        print("Strike le plus proche du spot :", K_reel)
+        print("Prix du call cote :", prix_marche)
 
-    print("Strike reel le plus proche du spot :", K_reel)
-    print("Prix du call cote sur le marche :", prix_marche)
+        prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
+        print("Prix theorique (notre modele) :", prix_theorique)
+        print("Ecart entre marche et modele :", prix_marche - prix_theorique)
 
-    prix_theorique = black_scholes(S, K_reel, T_reel, r, sigma, "call")
-    print("Prix theorique (notre modele) :", prix_theorique)
-    print("Ecart entre marche et modele :", prix_marche - prix_theorique)
+        # --- Convergence des methodes ---
+        prix_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
+        prix_bin = binomial_tree(S, K_reel, T_reel, r, sigma, "call", N=500)
+        print("Ecart Monte Carlo vs Black-Scholes :",
+              abs(prix_mc - prix_theorique))
+        print("Ecart arbre binomial vs Black-Scholes :",
+              abs(prix_bin - prix_theorique))
 
-    # --- Convergence des methodes ---
-    prix_call_mc = monte_carlo_pricer(S, K_reel, T_reel, r, sigma, "call")
-    print("Prix du call (Monte Carlo) :", prix_call_mc)
-    print("Ecart Monte Carlo vs Black-Scholes :",
-          abs(prix_call_mc - prix_theorique))
+        # --- Exercice anticipe ---
+        put_eu = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
+                               exercise_type="europeenne", N=500)
+        put_us = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
+                               exercise_type="americaine", N=500)
+        print("Prime d'exercice anticipe (put) :", put_us - put_eu)
 
-    prix_call_binomial = binomial_tree(S, K_reel, T_reel, r, sigma, "call",
-                                       exercise_type="europeenne", N=500)
-    print("Prix du call (arbre binomial) :", prix_call_binomial)
-    print("Ecart arbre binomial vs Black-Scholes :",
-          abs(prix_call_binomial - prix_theorique))
+        # --- Volatilite implicite ---
+        vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel,
+                                             r, "call")
+        print("Volatilite implicite :", vol_implicite)
+        print("Volatilite historique :", sigma)
 
-    # --- Exercice anticipe ---
-    put_eu = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
-                           exercise_type="europeenne", N=500)
-    put_us = binomial_tree(S, K_reel, T_reel, r, sigma, "put",
-                           exercise_type="americaine", N=500)
-    print("Prix du put europeen (arbre) :", put_eu)
-    print("Prix du put americain (arbre) :", put_us)
-    print("Prime d'exercice anticipe (put) :", put_us - put_eu)
-
-    # --- Volatilite implicite ---
-    vol_implicite = volatilite_implicite(prix_marche, S, K_reel, T_reel, r, "call")
-    print("Volatilite implicite (deduite du marche) :", vol_implicite)
-    print("Volatilite historique (calculee plus tot) :", sigma)
-
-    if vol_implicite is not None:
-        print("Prix Black-Scholes avec cette vol implicite :",
-              black_scholes(S, K_reel, T_reel, r, vol_implicite, "call"))
-        print("Prix reel du marche :", prix_marche)
+        if vol_implicite is not None:
+            print("Reprice avec la vol implicite :",
+                  black_scholes(S, K_reel, T_reel, r, vol_implicite, "call"))
 
     # --- Smile ---
-    strikes_smile, vols_smile, _ = calcule_smile(ticker, date_choisie,
-                                                 spot_reel, r)
-    print("Nombre de points calcules pour le smile :", len(strikes_smile))
+    # Sur donnees figees, on utilise le spot enregistre avec elles.
+    spot_reference = spot_reel
+    if source_chaine == donnees.SNAPSHOT:
+        spot_reference = donnees.spot_snapshot(SYMBOLE) or spot_reel
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(strikes_smile, vols_smile, marker="o", linestyle="-")
-    plt.axvline(spot_reel, color="red", linestyle="--", label="Spot actuel")
-    plt.xlabel("Strike")
-    plt.ylabel("Volatilite implicite")
-    plt.title("Smile de volatilite - AAPL - echeance " + date_choisie)
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("smile_matplotlib.png", dpi=150)
-    plt.show()
+    strikes_smile, vols_smile = calcule_smile(calls, puts, spot_reference,
+                                              r, T_reel)
+    print("\nNombre de points pour le smile :", len(strikes_smile))
+
+    if strikes_smile:
+        plt.figure(figsize=(10, 6))
+        plt.plot(strikes_smile, vols_smile, marker="o", linestyle="-")
+        plt.axvline(spot_reference, color="red", linestyle="--", label="Spot")
+        plt.xlabel("Strike")
+        plt.ylabel("Volatilite implicite")
+        plt.title(f"Smile de volatilite - {SYMBOLE} - echeance {date_choisie}")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig("smile_matplotlib.png", dpi=150)
+        plt.show()
 
     # --- Surface ---
-    x_strikes = []
-    y_maturites = []
+    x_moneyness = []
+    y_jours = []
     z_vols = []
 
-    for date_exp in dates_disponibles[5:12]:
-        strikes_e, vols_e, T_e = calcule_smile(ticker, date_exp, spot_reel, r)
+    for date_exp in echeances[:8]:
+        c, p, src = donnees.charger_chaine(SYMBOLE, date_exp)
+        T_e = donnees.annees_jusqua(date_exp)
 
-        if len(strikes_e) < 5:
+        ref = spot_reel
+        if src == donnees.SNAPSHOT:
+            ref = donnees.spot_snapshot(SYMBOLE) or spot_reel
+
+        ks, vs = calcule_smile(c, p, ref, r, T_e)
+
+        if len(ks) < 5:
             continue
 
-        for k, v in zip(strikes_e, vols_e):
-            x_strikes.append(k / spot_reel)
-            y_maturites.append(T_e * 365)
+        for k, v in zip(ks, vs):
+            x_moneyness.append(k / ref)
+            y_jours.append(T_e * 365)
             z_vols.append(v)
 
     print("Nombre total de points pour la surface :", len(z_vols))
 
-    figure_3d = go.Figure(data=[go.Mesh3d(
-        x=x_strikes, y=y_maturites, z=z_vols,
-        intensity=z_vols, colorscale="Viridis", opacity=0.9,
-    )])
-    figure_3d.update_layout(
-        title="Surface de volatilite implicite - AAPL",
-        scene=dict(
-            xaxis_title="Moneyness (Strike / Spot)",
-            yaxis_title="Jours avant expiration",
-            zaxis_title="Volatilite implicite",
-        ),
-    )
-    figure_3d.write_html("surface_volatilite.html")
-    figure_3d.show()
+    if len(z_vols) >= 20:
+        figure_3d = go.Figure(data=[go.Mesh3d(
+            x=x_moneyness, y=y_jours, z=z_vols,
+            intensity=z_vols, colorscale="Viridis", opacity=0.9,
+        )])
+        figure_3d.update_layout(
+            title=f"Surface de volatilite implicite - {SYMBOLE}",
+            scene=dict(
+                xaxis_title="Moneyness (Strike / Spot)",
+                yaxis_title="Jours avant expiration",
+                zaxis_title="Volatilite implicite",
+            ),
+        )
+        figure_3d.write_html("surface_volatilite.html")
+        figure_3d.show()
 
     # --- Delta-hedging : loi en 1/sqrt(n) ---
     print("\n--- Simulation de delta-hedging ---")
@@ -515,4 +521,5 @@ if __name__ == "__main__":
         ecart_type = np.std(pnls)
         print(f"{n:6d} | {np.mean(pnls):+10.4f} | {ecart_type:10.4f} | "
               f"{ecart_type * np.sqrt(n):10.4f}")
+
         
