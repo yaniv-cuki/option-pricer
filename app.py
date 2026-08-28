@@ -221,6 +221,17 @@ def spot_de_reference(symbole, source, spot_courant):
         return donnees.spot_snapshot(symbole) or spot_courant
     return spot_courant
 
+def echeances_exploitables(dates, jours_min=20):
+    """Ecarte les echeances trop proches.
+
+    A quelques jours de l'expiration, les prix d'options sont bruites et
+    le skew devient instable : la volatilite implicite peut depasser 60%
+    sur des strikes eloignes sans que cela reflete une anticipation reelle.
+    """
+    retenues = [d for d in dates if donnees.annees_jusqua(d) * 365 >= jours_min]
+    return retenues or dates
+
+
 
 @st.fragment(run_every="30s")
 def bandeau_live(symbole):
@@ -525,6 +536,8 @@ if st.button(t("smile_button")):
 
 if st.session_state.get("smile_lance"):
     echeances, source_echeances = charger_echeances(ticker_input)
+    echeances = echeances_exploitables(echeances)
+    
 
     if not echeances:
         st.error(t("smile_no_expiry"))
@@ -532,7 +545,7 @@ if st.session_state.get("smile_lance"):
     else:
         afficher_source(source_echeances)
 
-        index_defaut = min(2, len(echeances) - 1)
+        index_defaut = min(1, len(echeances) - 1)
         echeance_choisie = st.selectbox(
             t("smile_expiry_label"), echeances, index=index_defaut
         )
@@ -602,6 +615,7 @@ if st.button(t("surface_button")):
 
 if st.session_state.get("surface_lancee"):
     echeances, source_echeances = charger_echeances(ticker_input)
+    echeances = echeances_exploitables(echeances)
     afficher_source(source_echeances)
 
     x_moneyness = []
