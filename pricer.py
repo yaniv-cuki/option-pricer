@@ -397,7 +397,15 @@ if __name__ == "__main__":
         print("Aucune echeance exploitable, fin de la demonstration.")
         raise SystemExit(0)
 
-    date_choisie = echeances[min(2, len(echeances) - 1)]
+    # A quelques jours de l'expiration, les prix d'options sont bruites et
+    # le skew devient instable. On ecarte ces echeances, comme le fait
+    # l'application.
+    JOURS_MIN = 20
+    echeances = [
+        d for d in echeances if donnees.annees_jusqua(d) * 365 >= JOURS_MIN
+    ] or echeances
+
+    date_choisie = echeances[min(1, len(echeances) - 1)]
     T_reel = donnees.annees_jusqua(date_choisie)
 
     print("Echeance choisie :", date_choisie)
@@ -521,5 +529,4 @@ if __name__ == "__main__":
         ecart_type = np.std(pnls)
         print(f"{n:6d} | {np.mean(pnls):+10.4f} | {ecart_type:10.4f} | "
               f"{ecart_type * np.sqrt(n):10.4f}")
-
         

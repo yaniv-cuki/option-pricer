@@ -11,7 +11,7 @@ D'ou ce repli, qui garantit que l'application reste utilisable en ligne.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -49,9 +49,16 @@ def tickers_snapshot():
 
 
 def annees_jusqua(date_expiration):
-    """Temps restant jusqu'a une echeance, exprime en annees."""
-    date_exp = datetime.strptime(date_expiration, "%Y-%m-%d")
-    jours = (date_exp - datetime.today()).days
+    """Temps restant jusqu'a une echeance, exprime en annees.
+
+    Compte en UTC : la machine de developpement et le serveur qui heberge
+    l'application ne sont pas dans le meme fuseau, et un comptage en heure
+    locale pourrait differer d'un jour selon l'heure d'execution.
+    """
+    date_exp = datetime.strptime(date_expiration, "%Y-%m-%d").replace(
+        tzinfo=timezone.utc
+    )
+    jours = (date_exp - datetime.now(timezone.utc)).days
     return max(jours, 0) / 365
 
 

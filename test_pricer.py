@@ -14,6 +14,7 @@ import pytest
 from pricer import (
     binomial_tree,
     black_scholes,
+    calcule_smile,
     delta,
     gamma,
     monte_carlo_pricer,
@@ -353,4 +354,128 @@ def test_pas_de_valeur_aberrante_en_regime_extreme(S, K, T, r, sigma):
         simule_delta_hedging(S, K, T, r, sigma, 20, seed=1)["pnl"],
     ]
     assert all(np.isfinite(v) for v in valeurs)
-    
+
+
+# ---------------------------------------------------------------------------
+# Smile de volatilite
+#
+# calcule_smile ne fait aucun appel reseau : on lui fabrique des chaines
+# d'options a partir d'une volatilite connue, puis on verifie qu'elle la
+# retrouve. C'est precisement ce que le decouplage rend possible.
+# ---------------------------------------------------------------------------
+
+def chaine_synthetique(spot, r, T, fonction_vol, pas=5.0, largeur=0.20):
+    """Fabrique des calls et puts cotes selon une volatilite imposee."""
+    calls, puts = [], []
+    strike = spot * (1 - largeur)
+
+    while strike <= spot * (1 + largeur):
+        sigma = fonction_vol(strike)
+        calls.append({
+            "strike": strike,
+            "lastPrice": black_scholes(spot, strike, T, r, sigma, "call"),
+        })
+        puts.append({
+            "strike": strike,
+            "lastPrice": black_scholes(spot, strike, T, r, sigma, "put"),
+        })
+        strike += pas
+
+    return calls, puts
+
+
+def test_smile_retrouve_une_volatilite_constante():
+    """Sur des prix generes a vol constante, le smile doit etre plat."""
+    spot, r, T, sigma = 300.0, 0.03, 45 / 365, 0.25
+    calls, puts = chaine_synthetique(spot, r, T, lambda k: sigma)
+
+    strikes, vols = calcule_smile(calls, puts, spot, r, T)
+
+    assert len(strikes) > 5
+    for v in vols:
+        assert v == pytest.approx(sigma, abs=1e-5)
+
+
+def test_smile_retrouve_un_skew_impose():
+    """Sur des prix generes avec un skew, la courbe doit le reproduire."""
+    spot, r, T = 300.0, 0.03, 45 / 365
+
+    def vol_vraie(K):
+        return 0.30 - 0.20 * (K / spot - 0.90)
+
+    calls, puts = chaine_synthetique(spot, r, T, vol_vraie)
+    strikes, vols = calcule_smile(calls, puts, spot, r, T)
+
+    assert len(strikes) > 5
+    for K, v in zip(strikes, vols):
+        assert v == pytest.approx(vol_vraie(K), abs=1e-5)
+    # Un skew decroissant doit rester decroissant.
+    assert vols[0] > vols[-1]
+
+
+def test_smile_trie_par_strike_croissant():
+    """Les puts et les calls sont fusionnes puis ordonnes."""
+    spot, r, T = 300.0, 0.03, 45 / 365
+    calls, puts = chaine_synthetique(spot, r, T, lambda k: 0.25)
+
+    strikes, _ = calcule_smile(calls, puts, spot, r, T)
+
+    assert strikes == sorted(strikes)
+    assert len(strikes) == len(set(strikes))
+
+
+def test_smile_ne_garde_que_le_hors_monnaie():
+    """Puts sous le spot, calls au-dessus, dans une bande de plus ou moins 15%."""
+    spot, r, T = 300.0, 0.03, 45 / 365
+    calls, puts = chaine_synthetique(spot, r, T, lambda k: 0.25, largeur=0.40)
+
+    strikes, _ = calcule_smile(calls, puts, spot, r, T)
+
+    assert min(strikes) > spot * 0.85
+    assert max(strikes) < spot * 1.15
+
+
+def test_smile_ecarte_les_contrats_sans_liquidite():
+    """Un prix sous 0.10 signale un contrat non echange recemment."""
+    spot, r, T = 300.0, 0.03, 45 / 365
+    calls, puts = chaine_synthetique(spot, r, T, lambda k: 0.25)
+
+    parasites = [{"strike": 305.0, "lastPrice": 0.02},
+                 {"strike": 310.0, "lastPrice": 0.0}]
+
+    avant, _ = calcule_smile(calls, puts, spot, r, T)
+    apres, _ = calcule_smile(calls + parasites, puts, spot, r, T)
+
+    assert len(apres) == len(avant)
+
+
+def test_smile_gere_les_entrees_vides():
+    """Aucune donnee ne doit pas lever d'exception."""
+    assert calcule_smile([], [], 300.0, 0.03, 45 / 365) == ([], [])
+
+
+@pytest.mark.parametrize("T_invalide", [0, -1, -0.5])
+def test_smile_refuse_une_echeance_passee(T_invalide):
+    """Une echeance nulle ou passee n'a pas de volatilite implicite."""
+    spot, r = 300.0, 0.03
+    calls, puts = chaine_synthetique(spot, r, 45 / 365, lambda k: 0.25)
+
+    assert calcule_smile(calls, puts, spot, r, T_invalide) == ([], [])
+
+
+def test_smile_survit_a_des_prix_aberrants():
+    """Des prix incoherents sont ignores, pas propages."""
+    spot, r, T = 300.0, 0.03, 45 / 365
+    calls, puts = chaine_synthetique(spot, r, T, lambda k: 0.25)
+
+    aberrants = [
+        {"strike": 305.0, "lastPrice": 1e6},    # prix absurde
+        {"strike": 310.0, "lastPrice": -5.0},   # prix negatif
+    ]
+
+    strikes, vols = calcule_smile(calls + aberrants, puts, spot, r, T)
+
+    assert len(strikes) > 5
+    for v in vols:
+        assert 0.01 < v < 3
+        

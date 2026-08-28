@@ -13,14 +13,13 @@ Usage :  python3 generer_snapshot.py
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yfinance as yf
 
 # Sous-jacents pour lesquels on conserve un instantane.
-TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META",
-           "TSLA", "AMD", "SPY", "QQQ"]
+TICKERS = ["AAPL", "NVDA", "MSFT"]
 
 # Echeances retenues : on saute les toutes premieres (quelques jours, donnees
 # instables) et on s'arrete avant les tres lointaines (peu liquides).
@@ -101,7 +100,7 @@ def main():
     print("Generation de l'instantane des chaines d'options\n")
 
     donnees = {
-        "genere_le": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "genere_le": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "tickers": {},
     }
 
@@ -135,3 +134,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
