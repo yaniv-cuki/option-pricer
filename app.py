@@ -7,7 +7,7 @@ Acces aux donnees de marche delegue a donnees.py, textes a traductions.py.
 Lancer avec :  streamlit run app.py
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import plotly.graph_objects as go
@@ -245,7 +245,9 @@ def bandeau_live(symbole):
     hausse = infos["variation"] >= 0
     sens = "up" if hausse else "down"
     signe = "+" if hausse else ""
-    meta = t("live_meta", heure=datetime.now().strftime("%H:%M:%S"))
+    heure_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+    meta = t("live_meta", heure=heure_utc)
+
 
     st.markdown(
         f"""
